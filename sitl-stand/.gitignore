@@ -1,0 +1,6 @@
+ardupilot/
+build/
+*.tlog
+*.AppImage
+eeprom.bin
+mav.parm
