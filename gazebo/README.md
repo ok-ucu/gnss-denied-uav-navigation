@@ -5,11 +5,12 @@
 
 ## Статус
 - [x] Dockerfile: ROS 2 Jazzy + Gazebo Harmonic (headless)
-- [ ] Запуск Gazebo в контейнері
-- [ ] Світ із текстурами
-- [ ] Камера і IMU на моделі дрона
-- [ ] Міст ros_gz_bridge → ROS 2 топіки
-- [ ] Інтеграція з SITL (Людина 1)
+- [x] Запуск Gazebo в контейнері
+- [x] Світ із орієнтирами (camera_world.sdf)
+- [x] Камера і IMU на платформі (/camera/image_raw, /camera/camera_info, /imu)
+- [x] Міст ros_gz_bridge → ROS 2 топіки
+- [ ] Інтеграція з ArduPilot SITL (реальна модель дрона, Людина 1)
+- [ ] Підключення VIO (Людина 3)
 
 ## Швидкий старт
     cd gazebo
