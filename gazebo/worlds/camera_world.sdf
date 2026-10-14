@@ -1,0 +1,75 @@
+<?xml version="1.0"?>
+<sdf version="1.9">
+  <world name="camera_world">
+    <physics name="1ms" type="ignored">
+      <max_step_size>0.001</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+    </physics>
+    <plugin filename="gz-sim-physics-system" name="gz::sim::systems::Physics"/>
+    <plugin filename="gz-sim-sensors-system" name="gz::sim::systems::Sensors">
+      <render_engine>ogre2</render_engine>
+    </plugin>
+    <plugin filename="gz-sim-imu-system" name="gz::sim::systems::Imu"/>
+    <plugin filename="gz-sim-scene-broadcaster-system" name="gz::sim::systems::SceneBroadcaster"/>
+    <plugin filename="gz-sim-user-commands-system" name="gz::sim::systems::UserCommands"/>
+
+    <light type="directional" name="sun">
+      <cast_shadows>true</cast_shadows>
+      <pose>0 0 10 0 0 0</pose>
+      <diffuse>1 1 1 1</diffuse>
+      <direction>-0.5 0.1 -0.9</direction>
+    </light>
+
+    <model name="ground">
+      <static>true</static>
+      <link name="link">
+        <collision name="c"><geometry><plane><normal>0 0 1</normal><size>200 200</size></plane></geometry></collision>
+        <visual name="v">
+          <geometry><plane><normal>0 0 1</normal><size>200 200</size></plane></geometry>
+          <material><ambient>0.35 0.5 0.3 1</ambient><diffuse>0.35 0.5 0.3 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- орієнтири -->
+    <model name="box_red"><static>true</static><pose>8 2 1 0 0 0.4</pose>
+      <link name="l"><visual name="v"><geometry><box><size>2 2 2</size></box></geometry>
+      <material><ambient>0.9 0.1 0.1 1</ambient><diffuse>0.9 0.1 0.1 1</diffuse></material></visual></link></model>
+    <model name="box_blue"><static>true</static><pose>12 -3 1.5 0 0 0</pose>
+      <link name="l"><visual name="v"><geometry><box><size>3 1.5 3</size></box></geometry>
+      <material><ambient>0.1 0.2 0.9 1</ambient><diffuse>0.1 0.2 0.9 1</diffuse></material></visual></link></model>
+    <model name="cyl_yellow"><static>true</static><pose>16 4 2 0 0 0</pose>
+      <link name="l"><visual name="v"><geometry><cylinder><radius>1</radius><length>4</length></cylinder></geometry>
+      <material><ambient>0.9 0.8 0.1 1</ambient><diffuse>0.9 0.8 0.1 1</diffuse></material></visual></link></model>
+    <model name="box_white"><static>true</static><pose>20 -1 0.75 0 0 0.7</pose>
+      <link name="l"><visual name="v"><geometry><box><size>1.5 1.5 1.5</size></box></geometry>
+      <material><ambient>0.95 0.95 0.95 1</ambient><diffuse>0.95 0.95 0.95 1</diffuse></material></visual></link></model>
+
+    <!-- дрон-платформа з камерою та IMU -->
+    <model name="camera_drone">
+      <pose>0 0 2 0 0 0</pose>
+      <link name="body">
+        <gravity>false</gravity>
+        <inertial><mass>1.0</mass>
+          <inertia><ixx>0.01</ixx><iyy>0.01</iyy><izz>0.01</izz></inertia></inertial>
+        <visual name="v"><geometry><box><size>0.3 0.3 0.1</size></box></geometry></visual>
+        <sensor name="camera" type="camera">
+          <always_on>true</always_on>
+          <update_rate>20</update_rate>
+          <topic>/camera/image_raw</topic>
+          <camera>
+            <horizontal_fov>1.396</horizontal_fov>
+            <image><width>640</width><height>480</height><format>R8G8B8</format></image>
+            <clip><near>0.1</near><far>100</far></clip>
+          </camera>
+        </sensor>
+        <sensor name="imu" type="imu">
+          <always_on>true</always_on>
+          <update_rate>200</update_rate>
+          <topic>/imu</topic>
+        </sensor>
+      </link>
+      <plugin filename="gz-sim-velocity-control-system" name="gz::sim::systems::VelocityControl"/>
+    </model>
+  </world>
+</sdf>
