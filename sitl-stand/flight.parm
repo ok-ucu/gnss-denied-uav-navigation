@@ -1,0 +1,35 @@
+# Параметри польотів Фази 2. GPS увімкнений, EKF3 бере позицію з GPS.
+# VIO працює паралельно й лише записується (на EKF не впливає).
+# Виведено з ext_nav.parm (Фаза 1) та safety.parm (тести безпеки).
+
+# --- Джерело навігації: GPS ---
+EK3_SRC1_POSXY 3
+EK3_SRC1_VELXY 3
+EK3_SRC1_POSZ 1
+EK3_SRC1_VELZ 3
+EK3_SRC1_YAW 1
+GPS1_TYPE 1
+VISO_TYPE 0
+
+# --- Geofence ---
+# РАДІУС ПІДІБРАТИ ПІД МАРШРУТ: найдальша точка маршруту + запас 20-30 %.
+# Ціль за межею автопілот не приймає (перевірено в SITL).
+FENCE_ENABLE 1
+FENCE_TYPE 3
+FENCE_ALT_MAX 30
+FENCE_RADIUS 50
+FENCE_ACTION 1
+
+# --- Батарея ---
+# Значення для 3S (SITL). ЗМІНИТИ під реальну батарею.
+BATT_LOW_VOLT 10.8
+BATT_CRT_VOLT 10.0
+BATT_FS_LOW_ACT 2
+BATT_FS_CRT_ACT 1
+
+# --- EKF failsafe ---
+# Спостерігалось у SITL: EKF variance -> EKF Failsafe -> Land.
+FS_EKF_ACTION 1
+
+# --- Не перевірено в SITL, розглянути для реального дрона ---
+# FS_GCS_ENABLE 1
