@@ -8,7 +8,7 @@
 - [x] Образ збирається, Gazebo запускає світ iris_runway з дроном iris_with_gimbal
 - [x] Плагін ArduPilot завантажується
 - [x] Камера на дроні публікує топіки зображення (gz): .../sensor/camera/image, .../camera_info
-- [ ] Обмін даними SITL <-> Gazebo (політ у Gazebo): у налагодженні
+- [x] Обмін даними SITL <-> Gazebo: зліт на 10 м у SITL за фізикою Gazebo
 - [ ] Міст камери в ROS 2 (з Людиною 2)
 
 ## Збірка
@@ -29,6 +29,10 @@
 
     docker exec gz bash -c "gz topic -l | grep -i -E 'image|camera'"
 
-## Відомі проблеми
-- `PreArm: Motors: Check frame class and type` і відсутність орієнтації в консолі
-  SITL: причину з'ясовують.
+## Важливо
+SITL треба запускати з файлом параметрів рамки, інакше `FRAME_CLASS = 0` і
+автопілот не озброюється (`PreArm: Motors: Check frame class and type`):
+
+    sim_vehicle.py -v ArduCopter -f gazebo-iris --model JSON \
+      --add-param-file=$HOME/ardupilot/Tools/autotest/default_params/gazebo-iris.parm \
+      -w --map --console
