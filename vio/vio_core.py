@@ -52,6 +52,20 @@ class VioEKF:
         self.P = F @ self.P @ F.T + Q
         self.P = 0.5 * (self.P + self.P.T)
 
+    def predict_kinematic(self, dt):
+        """Запасний крок, коли IMU надто рідкий (dt великий): акселерометр не
+        використовуємо, позиція просто інтегрується за поточною швидкістю,
+        а невизначеність швидкості росте, щоб камера могла її виправити."""
+        self.x[0:3] = self.x[0:3] + self.x[3:6] * dt
+        F = np.eye(9)
+        F[0:3, 3:6] = np.eye(3) * dt
+        Q = np.zeros((9, 9))
+        Q[0:3, 0:3] = np.eye(3) * 1e-6 * dt
+        Q[3:6, 3:6] = np.eye(3) * self.sigma_acc ** 2 * dt
+        Q[6:9, 6:9] = np.eye(3) * self.sigma_bias ** 2 * dt
+        self.P = F @ self.P @ F.T + Q
+        self.P = 0.5 * (self.P + self.P.T)
+
     # ---------- внутрішні helper-и ----------
     def _update(self, H, y, Rm, gate):
         """Один крок Калмана з перевіркою NIS. Повертає (прийнято?, NIS)."""

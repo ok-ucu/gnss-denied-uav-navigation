@@ -143,7 +143,9 @@ def main():
     paused = False
     t0 = time.time()
 
-    n_imu = n_pred = n_skip = 0
+    n_imu = n_pred = n_skip = n_kin = 0
+    n_att = n_sim = n_loc = 0
+    dt_max = 0.0
     t_rep = time.time()
 
     logf = open(args.log, "w", newline="")
@@ -164,6 +166,7 @@ def main():
                 if ty == "ATTITUDE":
                     roll, pitch, yaw = msg.roll, msg.pitch, msg.yaw
                     have_att = True
+                    n_att += 1
                 elif ty == "RAW_IMU":
                     # RAW_IMU: мілі-g -> м/с^2; dt беремо з часових міток автопілота,
                     # а не з моменту прибуття UDP-пакета
@@ -172,11 +175,16 @@ def main():
                     f = np.array([msg.xacc, msg.yacc, msg.zacc]) / 1000.0 * G
                     if have_att and last_imu_t is not None:
                         dt = t_imu - last_imu_t
+                        dt_max = max(dt_max, dt)
                         if 0.0 < dt < 0.2:
                             ekf.predict(f, rot_body_to_ned(roll, pitch, yaw), dt)
                             n_pred += 1
+                        elif 0.2 <= dt < 3.0:
+                            # IMU надто рідкий: не зупиняємо інтегрування позиції
+                            ekf.predict_kinematic(dt)
+                            n_kin += 1
                         else:
-                            n_skip += 1
+                            n_skip += 1       # dt <= 0 або величезний стрибок
                     gyro = np.array([msg.xgyro, msg.ygyro, msg.zgyro]) / 1000.0
                     last_imu_t = t_imu
                 elif ty == "SIMSTATE":
@@ -186,8 +194,10 @@ def main():
                     if lat is None:
                         lat, lng = msg.lat_int, msg.lng_int
                     sensor.feed_simstate(now, lat * 1e-7, lng * 1e-7)
+                    n_sim += 1
                 elif ty == "LOCAL_POSITION_NED":
                     sensor.feed_local(msg.vx, msg.vy, msg.vz)
+                    n_loc += 1
                     h_local = max(-msg.z, 0.5)
                     # вертикаль камерою не міряється - підтримуємо її з автопілота
                     if not z_init:
@@ -273,9 +283,13 @@ def main():
                 log.writerow([f"{now - t0:.3f}", x, y, z, vx, vy, vz,
                               sensor.n, sensor.e, err, q, accepted, rejected])
             if now - t_rep >= 1.0:
-                print(f"RAW_IMU {n_imu}/с, predict {n_pred}, пропущено {n_skip}, "
+                print(f"RAW_IMU {n_imu}/с (макс. dt {dt_max:.2f} с), predict {n_pred}, "
+                      f"без IMU-прискорень {n_kin}, пропущено {n_skip} | "
+                      f"ATT {n_att}, SIMSTATE {n_sim}, LOCAL {n_loc} | "
                       f"перезапусків швидкості {ekf.n_resets}")
-                n_imu = n_pred = n_skip = 0
+                n_imu = n_pred = n_skip = n_kin = 0
+                n_att = n_sim = n_loc = 0
+                dt_max = 0.0
                 t_rep = now
     except KeyboardInterrupt:
         print("\nЗупинено.")
