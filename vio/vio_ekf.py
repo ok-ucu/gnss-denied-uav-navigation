@@ -107,10 +107,14 @@ def main():
 
     # просимо потрібні повідомлення: RAW_IMU, ATTITUDE, LOCAL_POSITION_NED,
     # SIMSTATE, DISTANCE_SENSOR (далекомір, якщо є)
-    for msg_id, hz in ((27, 50), (30, 30), (32, 30), (164, 30), (132, 10)):
-        master.mav.command_long_send(
-            sysid, compid, mavutil.mavlink.MAV_CMD_SET_MESSAGE_INTERVAL, 0,
-            msg_id, 1e6 / hz, 0, 0, 0, 0, 0)
+    def request_streams():
+        for msg_id, hz in ((27, 50), (30, 30), (32, 30), (164, 30), (132, 10)):
+            master.mav.command_long_send(
+                sysid, compid, mavutil.mavlink.MAV_CMD_SET_MESSAGE_INTERVAL, 0,
+                msg_id, 1e6 / hz, 0, 0, 0, 0, 0)
+
+    request_streams()
+    last_req = time.time()
 
     ekf = VioEKF()
     monitor = QualityMonitor()
@@ -161,6 +165,11 @@ def main():
                       "DISTANCE_SENSOR"],
                 blocking=True, timeout=0.01)
             now = time.time()
+            # інша програма (напр. MAVProxy зі streamrate=4) може збити частоти
+            # повідомлень, тому періодично просимо їх знову
+            if now - last_req >= 3.0:
+                request_streams()
+                last_req = now
             if msg is not None:
                 ty = msg.get_type()
                 if ty == "ATTITUDE":
@@ -287,6 +296,9 @@ def main():
                       f"без IMU-прискорень {n_kin}, пропущено {n_skip} | "
                       f"ATT {n_att}, SIMSTATE {n_sim}, LOCAL {n_loc} | "
                       f"перезапусків швидкості {ekf.n_resets}")
+                if n_imu < 30:
+                    print("УВАГА: RAW_IMU приходить лише "
+                          f"{n_imu} Гц - частоти повідомлень збиті (GCS/MAVProxy?)")
                 n_imu = n_pred = n_skip = n_kin = 0
                 n_att = n_sim = n_loc = 0
                 dt_max = 0.0
