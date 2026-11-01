@@ -12,6 +12,12 @@ class FlowResult:
 
 
 class FlowFrontend:
+    """Оптичний потік камери, що дивиться вниз.
+
+    Монтаж: вісь x кадру = права сторона дрона (body Y), вісь y кадру = назад
+    (мінус body X). Саме з цим монтажем збігаються формули нижче; якщо камеру
+    повернуто інакше - треба міняти і flow_rot, і v_body разом."""
+
     def __init__(self, fx, min_inliers=15, min_contrast=8.0, max_corners=200):
         self.fx = fx
         self.min_inliers = min_inliers
@@ -23,12 +29,12 @@ class FlowFrontend:
                        criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 30, 0.01))
 
     def process(self, gray, t, height, gyro_body, R_body_to_ned):
-        """gray - кадр (uint8), t - час (с), height - висота над землею (м),
-        gyro_body - [gx,gy,gz] рад/с (FRD), R - матриця body->NED.
+        """gray - кадр (uint8), t - час КАДРУ (с), height - висота над землею по
+        вертикалі (м), gyro_body - [gx,gy,gz] рад/с (FRD), R - матриця body->NED.
         Повертає FlowResult або None, якщо кадр непридатний."""
         prev, prev_t = self.prev, self.prev_t
         self.prev, self.prev_t = gray, t
-        if prev is None or t <= prev_t:
+        if prev is None or t <= prev_t or height <= 0.0:
             return None
         if float(gray.std()) < self.min_contrast:
             return None
@@ -37,7 +43,11 @@ class FlowFrontend:
         if p0 is None or len(p0) < self.min_inliers:
             return None
         p1, st1, _ = cv2.calcOpticalFlowPyrLK(prev, gray, p0, None, **self.lk)
+        if p1 is None:
+            return None
         p0b, st2, _ = cv2.calcOpticalFlowPyrLK(gray, prev, p1, None, **self.lk)
+        if p0b is None:
+            return None
         fb_err = np.linalg.norm(p0 - p0b, axis=2).ravel()
         good = (st1.ravel() == 1) & (st2.ravel() == 1) & (fb_err < 1.0)
         if good.sum() < self.min_inliers:
@@ -53,9 +63,15 @@ class FlowFrontend:
         dt = t - prev_t
         flow = np.median(b[inl] - a[inl], axis=0) / dt
 
+        # потік від обертання дрона (гіроскоп) віднімаємо, лишається потік від руху
         gx, gy = float(gyro_body[0]), float(gyro_body[1])
         flow_rot = self.fx * np.array([gx, gy])
-        v_cam = -(height / self.fx) * (flow - flow_rot)
+
+        # відстань до землі ВЗДОВЖ променя камери: при нахилі вона більша за висоту
+        cos_tilt = max(float(R_body_to_ned[2, 2]), 0.5)
+        depth = height / cos_tilt
+
+        v_cam = -(depth / self.fx) * (flow - flow_rot)
         v_body = np.array([-v_cam[1], v_cam[0], 0.0])
         v_ned = R_body_to_ned @ v_body
         sigma_scale = float(np.clip(40.0 / n, 1.0, 5.0))
