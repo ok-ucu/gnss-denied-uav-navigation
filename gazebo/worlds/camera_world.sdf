@@ -15,37 +15,74 @@
 
     <light type="directional" name="sun">
       <cast_shadows>true</cast_shadows>
-      <pose>0 0 10 0 0 0</pose>
+      <pose>0 0 20 0 0 0</pose>
       <diffuse>1 1 1 1</diffuse>
       <direction>-0.5 0.1 -0.9</direction>
     </light>
 
-    <model name="ground">
+    <!-- Основна земля -->
+    <model name="ground_plane">
       <static>true</static>
       <link name="link">
         <collision name="c"><geometry><plane><normal>0 0 1</normal><size>200 200</size></plane></geometry></collision>
         <visual name="v">
           <geometry><plane><normal>0 0 1</normal><size>200 200</size></plane></geometry>
-          <material><ambient>0.35 0.5 0.3 1</ambient><diffuse>0.35 0.5 0.3 1</diffuse></material>
+          <material>
+            <ambient>0.4 0.45 0.4 1</ambient>
+            <diffuse>0.5 0.55 0.5 1</diffuse>
+          </material>
         </visual>
       </link>
     </model>
 
-    <!-- орієнтири -->
-    <model name="box_red"><static>true</static><pose>8 2 1 0 0 0.4</pose>
-      <link name="l"><visual name="v"><geometry><box><size>2 2 2</size></box></geometry>
+    <!-- Висококонтрастна злітно-посадкова смуга та шахівниця для стабільного optical flow (Розділ 3) -->
+    <!-- Зона старту: шаховий майданчик 10x10 метрів -->
+    <model name="start_pad_checkerboard">
+      <static>true</static>
+      <pose>0 0 0.005 0 0 0</pose>
+      <link name="l">
+        <visual name="v1"><pose>-2 -2 0 0 0 0</pose><geometry><box><size>2 2 0.005</size></box></geometry><material><diffuse>0.05 0.05 0.05 1</diffuse></material></visual>
+        <visual name="v2"><pose>0 -2 0 0 0 0</pose><geometry><box><size>2 2 0.005</size></box></geometry><material><diffuse>0.95 0.95 0.95 1</diffuse></material></visual>
+        <visual name="v3"><pose>2 -2 0 0 0 0</pose><geometry><box><size>2 2 0.005</size></box></geometry><material><diffuse>0.05 0.05 0.05 1</diffuse></material></visual>
+        <visual name="v4"><pose>-2 0 0 0 0 0</pose><geometry><box><size>2 2 0.005</size></box></geometry><material><diffuse>0.95 0.95 0.95 1</diffuse></material></visual>
+        <visual name="v5"><pose>0 0 0 0 0 0</pose><geometry><box><size>2 2 0.005</size></box></geometry><material><diffuse>0.05 0.05 0.05 1</diffuse></material></visual>
+        <visual name="v6"><pose>2 0 0 0 0 0</pose><geometry><box><size>2 2 0.005</size></box></geometry><material><diffuse>0.95 0.95 0.95 1</diffuse></material></visual>
+        <visual name="v7"><pose>-2 2 0 0 0 0</pose><geometry><box><size>2 2 0.005</size></box></geometry><material><diffuse>0.05 0.05 0.05 1</diffuse></material></visual>
+        <visual name="v8"><pose>0 2 0 0 0 0</pose><geometry><box><size>2 2 0.005</size></box></geometry><material><diffuse>0.95 0.95 0.95 1</diffuse></material></visual>
+        <visual name="v9"><pose>2 2 0 0 0 0</pose><geometry><box><size>2 2 0.005</size></box></geometry><material><diffuse>0.05 0.05 0.05 1</diffuse></material></visual>
+      </link>
+    </model>
+
+    <!-- Контрастна розмітка польотного коридору (кожні 4 метри чергуються контрастні мітки) -->
+    <model name="flight_corridor_markers">
+      <static>true</static>
+      <pose>0 0 0.006 0 0 0</pose>
+      <link name="l">
+        <visual name="m1"><pose>6 0 0 0 0 0</pose><geometry><box><size>1.5 1.5 0.005</size></box></geometry><material><diffuse>0.1 0.1 0.1 1</diffuse></material></visual>
+        <visual name="m2"><pose>10 1 0 0 0 0.785</pose><geometry><box><size>1.8 1.8 0.005</size></box></geometry><material><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="m3"><pose>14 -1 0 0 0 0</pose><geometry><box><size>2.0 1.0 0.005</size></box></geometry><material><diffuse>0.1 0.1 0.8 1</diffuse></material></visual>
+        <visual name="m4"><pose>18 0.5 0 0 0 0.4</pose><geometry><box><size>1.6 1.6 0.005</size></box></geometry><material><diffuse>0.8 0.1 0.1 1</diffuse></material></visual>
+        <visual name="m5"><pose>22 -0.5 0 0 0 0</pose><geometry><box><size>2.2 2.2 0.005</size></box></geometry><material><diffuse>0.95 0.85 0.1 1</diffuse></material></visual>
+        <visual name="m6"><pose>26 0 0 0 0 0.785</pose><geometry><box><size>1.8 1.8 0.005</size></box></geometry><material><diffuse>0.1 0.1 0.1 1</diffuse></material></visual>
+        <visual name="m7"><pose>30 1 0 0 0 0</pose><geometry><box><size>2.0 1.5 0.005</size></box></geometry><material><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+      </link>
+    </model>
+
+    <!-- Вертикальні орієнтири для огляду та паралаксу -->
+    <model name="box_red"><static>true</static><pose>8 3 1 0 0 0.4</pose>
+      <link name="l"><visual name="v"><geometry><box><size>1.5 1.5 2</size></box></geometry>
       <material><ambient>0.9 0.1 0.1 1</ambient><diffuse>0.9 0.1 0.1 1</diffuse></material></visual></link></model>
-    <model name="box_blue"><static>true</static><pose>12 -3 1.5 0 0 0</pose>
-      <link name="l"><visual name="v"><geometry><box><size>3 1.5 3</size></box></geometry>
+    <model name="box_blue"><static>true</static><pose>12 -3.5 1.5 0 0 0</pose>
+      <link name="l"><visual name="v"><geometry><box><size>2 1.5 3</size></box></geometry>
       <material><ambient>0.1 0.2 0.9 1</ambient><diffuse>0.1 0.2 0.9 1</diffuse></material></visual></link></model>
     <model name="cyl_yellow"><static>true</static><pose>16 4 2 0 0 0</pose>
-      <link name="l"><visual name="v"><geometry><cylinder><radius>1</radius><length>4</length></cylinder></geometry>
+      <link name="l"><visual name="v"><geometry><cylinder><radius>0.8</radius><length>4</length></cylinder></geometry>
       <material><ambient>0.9 0.8 0.1 1</ambient><diffuse>0.9 0.8 0.1 1</diffuse></material></visual></link></model>
-    <model name="box_white"><static>true</static><pose>20 -1 0.75 0 0 0.7</pose>
-      <link name="l"><visual name="v"><geometry><box><size>1.5 1.5 1.5</size></box></geometry>
+    <model name="box_white"><static>true</static><pose>20 -2 0.75 0 0 0.7</pose>
+      <link name="l"><visual name="v"><geometry><box><size>1.2 1.2 1.5</size></box></geometry>
       <material><ambient>0.95 0.95 0.95 1</ambient><diffuse>0.95 0.95 0.95 1</diffuse></material></visual></link></model>
 
-    <!-- дрон-платформа з камерою та IMU -->
+    <!-- Дрон-платформа з камерою та IMU -->
     <model name="camera_drone">
       <pose>0 0 2 0 0 0</pose>
       <link name="body">
@@ -53,6 +90,9 @@
         <inertial><mass>1.0</mass>
           <inertia><ixx>0.01</ixx><iyy>0.01</iyy><izz>0.01</izz></inertia></inertial>
         <visual name="v"><geometry><box><size>0.3 0.3 0.1</size></box></geometry></visual>
+        
+        <!-- Камера: 640x480, 30 FPS, спрямована вниз (pitch 90 град) -->
+        <!-- Узгоджено з vio_frontend.py: оптична вісь Z вниз, X праворуч, Y назад -->
         <sensor name="camera" type="camera">
           <pose>0 0 -0.05 0 1.5707963 0</pose>
           <always_on>true</always_on>
@@ -64,13 +104,24 @@
             <clip><near>0.1</near><far>100</far></clip>
           </camera>
         </sensor>
+        
+        <!-- IMU: 200 Гц у системі FRD польотного контролера -->
         <sensor name="imu" type="imu">
+          <pose>0 0 0 0 0 0</pose>
           <always_on>true</always_on>
           <update_rate>200</update_rate>
           <topic>/imu</topic>
         </sensor>
       </link>
-      <plugin filename="gz-sim-velocity-control-system" name="gz::sim::systems::VelocityControl"/>
+      
+      <!-- Керування швидкістю: приймає /model/camera_drone/cmd_vel від sitl_gazebo_sync.py -->
+      <plugin filename="gz-sim-velocity-control-system" name="gz::sim::systems::VelocityControl">
+        <topic>/model/camera_drone/cmd_vel</topic>
+      </plugin>
+      <plugin filename="gz-sim-odometry-publisher-system" name="gz::sim::systems::OdometryPublisher">
+        <odom_topic>/model/camera_drone/odometry</odom_topic>
+        <dimensions>3</dimensions>
+      </plugin>
     </model>
   </world>
 </sdf>
