@@ -1,0 +1,26 @@
+FILE AP_NavEKF3_Outputs.cpp
+306: // The getFilterStatus() function provides a more detailed description of data health and must be checked if data is to be used for flight control
+474: bool NavEKF3_core::getVariances(float &velVar, float &posVar, float &hgtVar, Vector3f &magVar, float &tasVar, Vector2f &offset) const
+557: void  NavEKF3_core::getFilterStatus(nav_filter_status &status) const
+606:     float velVar = 0, posVar = 0, hgtVar = 0, tasVar = 0;
+609:     getVariances(velVar, posVar, hgtVar, magVar, tasVar, offset);
+FILE AP_NavEKF3_Control.cpp
+270:                 PV_AidingMode = AID_ABSOLUTE;
+284:                 PV_AidingMode = AID_ABSOLUTE;
+290:         case AID_ABSOLUTE: {
+418:         case AID_ABSOLUTE:
+436:                 GCS_SEND_TEXT(MAV_SEVERITY_INFO, "EKF3 IMU%u is using external nav data",(unsigned)imu_index);
+577:     return tiltAlignComplete && extNavDataToFuse;
+640:     if ((PV_AidingMode == AID_ABSOLUTE) && (frontend->sources.getPosXYSource() == AP_NavEKF_Source::SourceXY::GPS)) {
+713:     bool doingNormalGpsNav = !posTimeout && (PV_AidingMode == AID_ABSOLUTE);
+716:     bool filterHealthy = healthy() && tiltAlignComplete && (yawAlignComplete || (!use_compass() && (PV_AidingMode != AID_ABSOLUTE)));
+735:     status.flags.using_gps = ((imuSampleTime_ms - lastPosPassTime_ms) < 4000) && (PV_AidingMode == AID_ABSOLUTE);
+736:     status.flags.gps_glitching = !gpsAccuracyGood && (PV_AidingMode == AID_ABSOLUTE) && (frontend->sources.getPosXYSource() == AP_NavEKF_Source::SourceXY::GPS); // GPS glitching is affecting navigation accuracy
+FILE AP_NavEKF3_PosVelFusion.cpp
+499:         extNavUsedForPos = true;
+641:             R_OBS[2] = R_OBS[0];
+642:             R_OBS[3] = R_OBS[0];
+652:                 R_OBS[2] = R_OBS[0] = sq(constrain_ftype(extNavVelDelayed.err, 0.05f, 5.0f));
+662:                 R_OBS[3] = sq(constrain_ftype(gpsPosAccuracy, frontend->_gpsHorizPosNoise, 100.0f));
+665:                 R_OBS[3] = sq(constrain_ftype(extNavDataDelayed.posErr, 0.01f, 10.0f));
+668:                 R_OBS[3] = sq(constrain_ftype(frontend->_gpsHorizPosNoise, 0.1f, 10.0f)) + sq(posErr);

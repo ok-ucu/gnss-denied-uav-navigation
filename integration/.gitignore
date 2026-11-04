@@ -1,0 +1,53 @@
+# Local environments, caches, editor files; never delete existing results.
+.DS_Store
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv*/
+*.tmp
+*.swp
+*.swo
+*~
+rosbag2_*/
+*.bag
+*.mcap
+
+# Local baseline, experimental Dockerfile and generated root-level outputs.
+/.baseline.json
+/Dockerfile.test
+/*.csv
+!/sitl_grounded_smoke.csv
+/integration_plot.png
+/sitl_verify.json
+/sitl_connectivity.json
+
+# New runs stay local until their evidence is explicitly curated.
+/experiments/*
+!/experiments/ekf444_covariance_20261104/
+/experiments/ekf444_covariance_20261104/*
+!/experiments/ekf444_covariance_20261104/REPORT.md
+!/experiments/ekf444_covariance_20261104/summary.json
+!/experiments/ekf444_covariance_20261104/parameters.json
+!/experiments/ekf444_covariance_20261104/generator.csv
+!/experiments/ekf444_covariance_20261104/monitor.csv
+!/experiments/ekf444_covariance_20261104/warmup.csv
+!/experiments/ekf444_covariance_20261104/synthetic_measurements.csv
+!/experiments/ekf444_covariance_20261104/received.jsonl
+!/experiments/ekf444_covariance_20261104/source_evidence.txt
+!/experiments/ekf444_covariance_20261104/fusion_logic_source.txt
+!/experiments/ekf444_covariance_20261104/status_bits_source.txt
+!/experiments/ekf444_covariance_20261104/docker.log
+!/experiments/ekf444_covariance_20261104/SHA256SUMS.json
+
+# Keep one canonical BIN/TLOG and identity sidecars; ignore EEPROM/terrain/raw caches.
+/sitl_runs/*
+!/sitl_runs/20261104T001121Z-7/
+/sitl_runs/20261104T001121Z-7/*
+!/sitl_runs/20261104T001121Z-7/mav.tlog
+!/sitl_runs/20261104T001121Z-7/firmware-commit.txt
+!/sitl_runs/20261104T001121Z-7/architecture.txt
+!/sitl_runs/20261104T001121Z-7/logs/
+/sitl_runs/20261104T001121Z-7/logs/*
+!/sitl_runs/20261104T001121Z-7/logs/00000001.BIN

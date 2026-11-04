@@ -1,0 +1,19 @@
+name: gnss-covariance-sitl
+services:
+  sitl:
+    image: orthuk/ardupilot-sitl@sha256:f5dffdb9f79ed8a7ff58aa7e6f6dfcbe2ebd2cead9fe7b20daea8d953b491540
+    platform: linux/arm64
+    init: true
+    restart: "no"
+    entrypoint: ["/bin/bash", "/integration/start_sitl.sh"]
+    environment:
+      MAVLINK20: "1"
+      SITL_HOST: ${SITL_HOST:-host.docker.internal}
+      COVARIANCE_PORT: ${COVARIANCE_PORT:-14556}
+      MONITOR_PORT: ${MONITOR_PORT:-14552}
+    volumes:
+      - .:/integration:ro
+      - ./sitl_runs:/results
+    # No --network host on Docker Desktop; UDP clients listen on the macOS host.
+    # Container sends outbound to host.docker.internal; replies use those sockets.
+    stop_grace_period: 15s

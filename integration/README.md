@@ -1,9 +1,26 @@
 # Інтеграція VIO → ROS 2/MAVROS → ArduPilot
 
-Реалізовано автономні Python-інструменти та ROS 2-адаптер. **Реальне передавання
-через MAVROS, приймання covariance ArduPilot і реакцію EKF не перевірено.**
-SITL, ROS 2, Docker та системні залежності під час цієї роботи не запускалися
-і не встановлювалися. Mock-тести не є доказом інтеграції.
+Модуль містить MAVLink-монітор, ROS 2/MAVROS-адаптер, аналізатори та
+відтворюваний ARM64 SITL. Поточний підтверджений результат — **synthetic,
+disarmed ArduCopter 4.4.4 experiment**, а не камерний VIO або політ.
+
+| Частина | Фактичний статус |
+|---|---|
+| Synthetic SITL normal → inflated → dropout → recovery | Live: ExternalNav aiding, pose covariance, innovations і timeout/recovery підтверджені DataFlash |
+| ROS 2/MAVROS-адаптер | Офлайн-тести перетворень і covariance; реальні ROS messages, launch, discovery та MAVROS transport не перевірені |
+| Камерний VIO → адаптер → ArduPilot | Не підключено й не перевірено; польоту та оцінки навігаційної точності не було |
+| Speed covariance у ArduPilot 4.4.4 | Handler ігнорує передану матрицю; використовується VISO_VEL_M_NSE |
+
+[Запуск і зупинка SITL](SITL.md) ·
+[Генератор covariance](test_ekf_covariance.md) ·
+[Повний живий звіт і докази](experiments/ekf444_covariance_20261104/REPORT.md) ·
+[План фінального staging](STAGING.md).
+
+У live-експерименті VISP.PErr змінився 0.2 → 3.63424, медіана P_NN core 0
+зросла у 5.87 раза, pos/vel timeout з'явився приблизно через 7 s dropout,
+а в recovery був скинутий. VISV.VErr залишився 0.1. Це підтверджує реакцію
+цього firmware, а не точність VIO. Точні EKF accepted/rejected counts з
+наявних логів не відновлюються; VISP/VISV Ign=0 не є innovation acceptance.
 
 ## Наявні інтерфейси та архітектура
 
@@ -13,6 +30,14 @@ SITL, ROS 2, Docker та системні залежності під час ц�
 VIO CSV має `t,x,y,z,vx,vy,vz,true_n,true_e,err_xy,quality,accepted,rejected`:
 `t` — секунди від старту процесу, `x,y,z` — NED; covariance у CSV не записується.
 За відсутності відео використовується імітований візуальний сенсор.
+У перевіреній гілці Людини 3 `origin/vio-setup` (`c5d31e2`) додано ROS 2
+**вхід** sensor_msgs/Image, але не Odometry publisher. Її вихід — direct MAVLink
+NED/FRD, а CSV також містить nis, n_inliers, sigma_v, latency_ms. Для нашого
+адаптера потрібен окремо погоджений Odometry publisher/міст із правильними
+ENU/FLU, twist covariance та ROS clock. Новий camera-режим VIO типово потребує
+далекоміра (`--vertical range`); у перевіреному SITL RNGFND1_TYPE=0. Використання
+`--vertical ap` бере вертикаль із автопілота й має позначатися як залежний
+loopback шлях. Код інших компонентів тут не змінюється.
 
 `sitl-stand/Dockerfile` налаштовує лише UDP 14550/14551.
 `sitl-stand/send_vision.py` повертає оцінку `LOCAL_POSITION_NED` у vision input;
@@ -96,7 +121,10 @@ Launch включає штатний [MAVROS node.launch](https://github.com/mav
 MAVROS, активний plugin `vision_pose` та `ros2 topic info -v /mavros/vision_pose/pose_cov`.
 Namespace можна перевизначити; тоді змініть і output_topic адаптера.
 
-Docker networking **не налаштована цими файлами**. `127.0.0.1` усередині
+MAVROS launch сам не налаштовує Docker networking. Окремий
+[перевірений SITL compose](SITL.md) забезпечує на Docker Desktop виходи через
+host.docker.internal:14556 для генератора та :14552 для монітора. Вихід
+14555 для MAVROS до цього compose автоматично не додано. `127.0.0.1` усередині
 контейнера зазвичай означає сам контейнер. На Linux із host networking,
 bridge network і Docker Desktop доступні адреси відрізняються. Якщо приймач
 на хості — потрібна доступна з контейнера адреса хоста; якщо приймач у
@@ -146,13 +174,15 @@ python3 -B integration/analyze_trajectories.py integration/gps.csv integration/v
 
 | Формат | Колонки позиції | Одиниці |
 |---|---|---|
-| enu | east,north,up | метри, спільний origin/yaw |
+| enu | east,north,up або east_m,north_m,up_m | метри, спільний origin/yaw |
 | ned | x,y,z | метри, NED зі спільним origin |
 | gps | lat,lon,alt | градуси WGS84 та метри, спільний datum висоти |
 
 Час за замовчуванням у `timestamp`. Окремо для кожного файлу доступні
 `--truth-time-column`/`--vio-time-column` і `--*-time-unit s|ms|us|ns|iso`.
-ISO потребує timezone. MAVLink scaled GPS integers треба попередньо перевести
+Для SITL ENU CSV з `t_s` явно задайте `--truth-time-column t_s`;
+порядок координат завжди East, North, Up. Це не синхронізує годинники саме
+по собі. ISO потребує timezone. MAVLink scaled GPS integers треба попередньо перевести
 у градуси/метри. GPS → ECEF → локальна ENU використовує WGS84 і явний origin.
 MSL та ellipsoid altitude не можна змішувати без корекції datum.
 
@@ -175,7 +205,12 @@ MSL та ellipsoid altitude не можна змішувати без корек
 `LOCAL_POSITION_NED`/`GLOBAL_POSITION_INT` — оцінки автопілота, не незалежний GT.
 GPS є шумним референсом; у SITL для істинної траєкторії потрібні simulator logs.
 
-## Експеримент із якістю VIO — ще не виконаний
+## Межі підтвердженого експерименту та подальший VIO-тест
+
+[Живий synthetic експеримент](experiments/ekf444_covariance_20261104/REPORT.md)
+виконано через direct MAVLink із SIMSTATE reference та контрольованою
+похибкою вимірів. Це не end-to-end ROS 2/MAVROS або камерний VIO тест.
+Наведений нижче план стосується майбутнього камерного/MAVROS експерименту.
 
 Розділяйте три різні речі:
 
@@ -202,8 +237,9 @@ GPS є шумним референсом; у SITL для істинної тра
 Перед цим власникам інших компонентів потрібно додати ROS Odometry publisher
 із коректною covariance/clock/extrinsics, незалежний GT із висотою та часовими
 мітками, виходи MAVProxy 14552/14555 і погодити джерела EKF. Поточний стенд
-очікує ExternalNav velocity; новий speed-шлях реалізовано, але його приймання
-та fusion ще треба перевірити на реальному стенді.
+очікує ExternalNav velocity. Direct MAVLink velocity input підтверджено у
+synthetic SITL; speed-шлях через ROS/MAVROS ще не перевірено. В ArduPilot
+4.4.4 speed covariance ігнорується незалежно від того, хто надіслав її.
 Ці зміни поза `integration/` тут не реалізовані. Також потрібні origin/home,
 перевірка yaw alignment, transport rate і налаштувань fusion перед польотом.
 
@@ -219,14 +255,18 @@ python3 -B integration/analyze_trajectories.py --help
 перевіряє копіювання covariance/stamp, валідацію даних, timestamp формати,
 GPS→ENU, RMSE/дрейф, інтерполяцію, відмову від несинхронних даних,
 source filtering, втрату/відновлення телеметрії, CSV та I/O помилку.
-Результат локального запуску: **18/18 тестів пройшли**; CLI `--help`,
+Результат у підготовленому `.venv` з pymavlink: **39/39 тестів пройшли**; CLI `--help`,
 Python AST, XML parsing і `git diff --check` також пройшли.
-Ці тести працюють без ROS/SITL/pymavlink. Реальні ROS message type support,
-QoS discovery, launch, мережа, MAVLink covariance і EKF потребують стенду.
+ROS/SITL для тестів не потрібні. Без pymavlink результат — 38 passed та
+1 явно skipped wire serialization test. Реальні ROS message type support,
+QoS discovery, launch і MAVROS transport потребують окремого ROS-стенду;
+direct MAVLink та EKF перевірені живим synthetic експериментом.
 
-`.baseline.json` — SHA-256 знімок файлів поза `integration/` і початкового
-`integration/Dockerfile.test` для перевірки незмінності в межах цієї роботи;
-це не телеметрія й не результат реального експерименту.
+`.baseline.json` — локальний допоміжний знімок, виключений зі здачі.
+Канонічний набір доказів визначає
+[SHA256SUMS.json](experiments/ekf444_covariance_20261104/SHA256SUMS.json).
+[STAGING.md](STAGING.md) відокремлює первинні логи від відтворюваних похідних
+файлів; `.gitignore` не видаляє наявні результати.
 
 
 ## Повторна перевірка launch та вимог EKF3
@@ -254,7 +294,7 @@ QoS discovery, launch, мережа, MAVLink covariance і EKF потребую�
 | EK3_SRC1_VELZ | 6 | ExternalNav vertical velocity |
 | EK3_SRC1_YAW | 1 | Compass yaw |
 | VISO_TYPE | 1 | MAVLink visual odometry backend |
-| GPS1_TYPE | 0 | GPS1 disabled |
+| GPS1_TYPE | 0 | Ім’я у конфігурації Людини 1; у pinned 4.4.4 використовується GPS_TYPE=0 з окремого sitl_transport.parm |
 
 Висота pose може передаватися, але POSZ тут вибрано з барометра;
 вертикальна швидкість усе одно потрібна із ExternalNav. Повідомлення yaw
@@ -310,7 +350,7 @@ stamp/frame та відмови від відсутніх даних. Сцена
 Без вхідних callback адаптер нічого не публікує; watchdog/failsafe автопілота
 ці unit-тести не моделюють.
 
-На стенді ще потрібно:
+Для ROS 2/MAVROS та камерного VIO на стенді ще потрібно:
 
 1. У sourced ROS 2 перевірити `ros2 pkg prefix --share mavros`, наявність
    `launch/node.launch`, `launch/apm_config.yaml`, їхні аргументи та версію

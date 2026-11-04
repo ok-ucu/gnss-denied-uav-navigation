@@ -1,0 +1,18 @@
+{
+  "integration/experiments/ekf444_covariance_20261104/generator.csv": "628f8548427b27781b652b5acf1780023ca648fa155f3bab06b218de8aaacb3e",
+  "integration/experiments/ekf444_covariance_20261104/summary.json": "8b48bd63c8cd646f961165f3d31341ce24d01f00ec0fa8f72e971841285e5c27",
+  "integration/experiments/ekf444_covariance_20261104/parameters.json": "d217710b87b868f46fdc7890c72e8b3102abc759d891a99f05ef43e9bf045924",
+  "integration/experiments/ekf444_covariance_20261104/synthetic_measurements.csv": "eb91bca4801e9b50e1e1cc9c8d66cb0772edcb378821e1acb1a356c25ba31c18",
+  "integration/experiments/ekf444_covariance_20261104/REPORT.md": "a84763ad536611aa7caa0c0e2923ae4df44453f3ef8b2a7a6173b7aa538cff4a",
+  "integration/experiments/ekf444_covariance_20261104/warmup.csv": "2fe59819fd7fce3c451dbe2cd9361bfa4b73b333a64890ce9079aeb2ade26556",
+  "integration/experiments/ekf444_covariance_20261104/monitor.csv": "6dc8e29f89851e8b7fec74e4135ed6df4f1bcbe76f307a3462d95760f5ce4225",
+  "integration/experiments/ekf444_covariance_20261104/fusion_logic_source.txt": "934ec5669a9c53494ba9cef4b1d13199a8ad1dab80b2713990b0285e5215bc3b",
+  "integration/experiments/ekf444_covariance_20261104/status_bits_source.txt": "76892f72ec12c8a2df3f890bbc9118f696b2ceaa03d7592f68a13c6baac8bdbd",
+  "integration/experiments/ekf444_covariance_20261104/source_evidence.txt": "8f210aeae384547ef01f6254debff851a1528a06b0a24182ab1f046909799aa4",
+  "integration/experiments/ekf444_covariance_20261104/received.jsonl": "14240ac268985f6d90ddc66462cb18ebb66e3e6f532efbcb733f8cc8c53c3280",
+  "integration/experiments/ekf444_covariance_20261104/docker.log": "d008832c62dd7e2924fd30556d17f5f1c7f730a2e44a4c6707f529d15cb98e7d",
+  "integration/sitl_runs/20261104T001121Z-7/logs/00000001.BIN": "09e8269e79d44ff20e2412c91f27cac0252d2433e08026b094d3cf273d87b25e",
+  "integration/sitl_runs/20261104T001121Z-7/mav.tlog": "b511d56eceb700c782eae1d2117f4cd5a9777e1ee3b02fe4bd3b888641863b6d",
+  "integration/sitl_runs/20261104T001121Z-7/firmware-commit.txt": "afa5054ecd73e662911eaad15c82708abdb86e0e5b4be93413bfed48b06482cd",
+  "integration/sitl_runs/20261104T001121Z-7/architecture.txt": "5121ae59314a84da7b4d9587374398f1afa2000b243b3e54f491adefaac54f92"
+}

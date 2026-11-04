@@ -1,0 +1,11 @@
+# Preserve evidence bytes regardless of a reviewer's core.autocrlf setting.
+experiments/ekf444_covariance_20261104/* -text
+experiments/ekf444_covariance_20261104/*.csv whitespace=cr-at-eol
+sitl_grounded_smoke.csv -text whitespace=cr-at-eol
+sitl_runs/20261104T001121Z-7/** -text
+sitl_runs/20261104T001121Z-7/logs/00000001.BIN -diff
+sitl_runs/20261104T001121Z-7/mav.tlog -diff
+# Verbatim captures contain numbered/prefixed empty lines ending in a space.
+# Keep those original evidence bytes; this exception does not cover source code.
+experiments/ekf444_covariance_20261104/source_evidence.txt whitespace=-blank-at-eol
+experiments/ekf444_covariance_20261104/docker.log whitespace=-blank-at-eol
