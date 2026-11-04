@@ -5,6 +5,16 @@ set -euo pipefail
 : "${SITL_HOST:=host.docker.internal}"
 : "${COVARIANCE_PORT:=14556}"
 : "${MONITOR_PORT:=14552}"
+: "${SITL_RANGE:=0}"
+: "${SITL_STREAMRATE:=10}"
+if [[ ! "$SITL_STREAMRATE" =~ ^(-1|[0-9]+)$ ]]; then
+    echo 'SITL_STREAMRATE must be -1 or a nonnegative integer' >&2
+    exit 2
+fi
+if [[ "$SITL_RANGE" != 0 && "$SITL_RANGE" != 1 ]]; then
+    echo 'SITL_RANGE must be 0 or 1' >&2
+    exit 2
+fi
 if [[ "$COVARIANCE_PORT" == "$MONITOR_PORT" ]]; then
     echo 'Covariance and monitor must use different UDP ports' >&2
     exit 2
@@ -43,12 +53,16 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
+defaults="$ARDUPILOT_DIR/Tools/autotest/default_params/copter.parm,/integration/sitl_ext_nav.parm,/integration/sitl_transport.parm"
+if [[ "$SITL_RANGE" == 1 ]]; then
+    defaults+=",/integration/sitl_range.parm"
+fi
 "$ARDUPILOT_DIR/build/sitl/bin/arducopter" \
     -S --model + --speedup 1 --home=-35.363261,149.165230,584,0 \
-    --defaults "$ARDUPILOT_DIR/Tools/autotest/default_params/copter.parm,/integration/sitl_ext_nav.parm,/integration/sitl_transport.parm" &
+    --defaults "$defaults" &
 sitl_pid=$!
 mavproxy.py --master=tcp:127.0.0.1:5760 --mav20 --non-interactive \
-    --source-system=254 --streamrate=10 \
+    --source-system=254 --streamrate="$SITL_STREAMRATE" \
     --out="udp:$SITL_HOST:$COVARIANCE_PORT" \
     --out="udp:$SITL_HOST:$MONITOR_PORT" \
     --logfile="$run_dir/mav.tlog" &

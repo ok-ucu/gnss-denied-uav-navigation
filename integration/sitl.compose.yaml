@@ -8,6 +8,8 @@ services:
     entrypoint: ["/bin/bash", "/integration/start_sitl.sh"]
     environment:
       MAVLINK20: "1"
+      SITL_RANGE: ${SITL_RANGE:-0}
+      SITL_STREAMRATE: ${SITL_STREAMRATE:-10}
       SITL_HOST: ${SITL_HOST:-host.docker.internal}
       COVARIANCE_PORT: ${COVARIANCE_PORT:-14556}
       MONITOR_PORT: ${MONITOR_PORT:-14552}
