@@ -51,3 +51,9 @@ rosbag2_*/
 !/sitl_runs/20261104T001121Z-7/logs/
 /sitl_runs/20261104T001121Z-7/logs/*
 !/sitl_runs/20261104T001121Z-7/logs/00000001.BIN
+
+# Local smoke-test archives; portable summaries are kept in reports/.
+/camera_probe_runs/
+/input_probe_runs/
+/motion_bridge_runs/
+/commit_audit/
