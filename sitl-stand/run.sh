@@ -9,10 +9,10 @@ pkill -f mavproxy 2>/dev/null
 
 case "$MODE" in
   extnav)
-    docker run -it --rm --network host ardupilot-sitl
+    docker run -it --rm --network host -v "$HOME/sitl-logs:/home/dev/ardupilot/ArduCopter/logs" ardupilot-sitl
     ;;
   gps)
-    docker run -it --rm --network host ardupilot-sitl \
+    docker run -it --rm --network host -v "$HOME/sitl-logs:/home/dev/ardupilot/ArduCopter/logs" ardupilot-sitl \
       sim_vehicle.py -v ArduCopter --no-rebuild --out=udp:127.0.0.1:14550
     ;;
   *)
