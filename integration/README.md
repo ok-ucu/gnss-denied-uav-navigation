@@ -259,7 +259,7 @@ python3 -B integration/analyze_trajectories.py --help
 перевіряє копіювання covariance/stamp, валідацію даних, timestamp формати,
 GPS→ENU, RMSE/дрейф, інтерполяцію, відмову від несинхронних даних,
 source filtering, втрату/відновлення телеметрії, CSV та I/O помилку.
-Результат у підготовленому `.venv` з pymavlink: **58/58 тестів пройшли**; CLI `--help`,
+Результат у підготовленому `.venv` з pymavlink: **75/75 тестів пройшли**; CLI `--help`,
 Python AST, XML parsing і `git diff --check` також пройшли.
 ROS/SITL для тестів не потрібні. Без pymavlink результат — 38 passed та
 1 явно skipped wire serialization test. Реальні ROS message type support,
@@ -499,3 +499,78 @@ docker run --name "$CONTAINER" --platform linux/arm64 --init -e MODE="$MODE" \
 flight і capture-to-MAVLink latency ≤50 мс залишаються NOT TESTED.
 Історичні [STAGING.md](STAGING.md) / [STAGING_FILES.txt](STAGING_FILES.txt) описують
 попередній covariance commit, а не новий список staging.
+
+
+## Незалежні перевірки Integration & Validation (2026-11-06)
+
+Ці зміни перевірені офлайн; нових live-підтверджень не отримано. Історичні
+звіти та первинні логи не перераховувалися й не змінювалися.
+
+### Пасивний монітор
+
+За замовчуванням `check_integration.py` зберігає попередні interval requests
+(id 193 та 32 на 5 Гц). При паралельній роботі з VIO/probe на тому самому FCU
+channel використовуйте пасивний режим, щоб не перезаписати їхні частоти:
+
+```bash
+.venv/bin/python -B integration/check_integration.py --passive \
+  --conn udpin:0.0.0.0:14552 --duration 20 --output integration/monitor_passive.csv
+```
+
+`--passive` не надсилає interval/stream-rate commands. Він очікує, що потрібні
+потоки вже налаштовані іншою стороною. Це не новий live-тест rate.
+
+### Verdict руху та clock consistency
+
+Motion probe зберігає попередні CSV/PNG й поля capture.json; додає `status` та
+`verdict`. Для руху потрібні ≥2 camera frames і ≥2 odometry samples у кожній
++X/+Y фазі та виміряне додатне зміщення ≥0.1 м на відповідній осі. Самих команд
+або exit без exception недостатньо. Для pixel-sign PASS додатково потрібні
+identity attitude та ≥3 same-phase pairs з ≥4 tracks для кожної осі.
+За недостатніх tracks/неперевіреної attitude optical-flow check — NOT TESTED,
+навіть коли movement_status — PASS. Exit codes: PASS=0, FAIL=1, NOT TESTED=2.
+Це не перевірка точності швидкості, довільних поворотів або синхронізації з SITL.
+
+Camera probe зберігає старі вимірювання та додає `clock_samples` з monotonic
+arrival time, `arrival_gaps` і `clock_consistency`. За замовчуванням спільний
+clock domain не припускається: `clock_consistency.status` буде NOT TESTED,
+а загальний PASS означатиме лише transport checks. Якщо оператор підтвердив,
+що Image.header.stamp та /clock походять від одного Gazebo simulation clock:
+
+```bash
+# Усередині підготовленого ROS-контейнера, коли Image і /clock вже надходять:
+python3 /integration/probe_camera.py --duration 10 --warmup 10 \
+  --shared-clock --max-stamp-age 0.2 --future-tolerance 0.05 \
+  --max-arrival-gap 0.2 --output /results/probe.json
+```
+
+Для кожного кадру використовується останній /clock, отриманий перед ним;
+відсутність повного покриття дає NOT TESTED. Stale/future stamps, reset та
+надмірні arrival gaps дають FAIL. Перевіряється узгодженість спостережуваних
+stamps у заданих tolerances, **не** capture latency, frame–IMU alignment чи
+доведена точність синхронізації. `--shared-clock` — явне підтвердження контракту,
+а не автоматичне визначення однакових часових епох. Поріг gap — wall seconds,
+пороги stamp age/future — секунди simulation clock; при зміні speedup вони
+не є взаємозамінними. Старі записи без arrival metadata лишаються NOT TESTED
+для нових перевірок. NaN/Infinity у trajectory offset та max-gap відхиляються.
+
+### Версії EKF3 profile
+
+Історичний integration profile `sitl_ext_nav.parm` зафіксований за Людиною 1
+commit `98a84ba861a5c9748517cc9437bc64f6a1c2cb33`: `EK3_SRC1_VELZ=6`.
+У новішій `origin/sitl-stand` commit `e5045d41efd449146bd212170eaa3e063a88b813`
+вже `EK3_SRC1_VELZ=0` (вертикальна швидкість не обрана із source set).
+Це різні конфігурації. Поточний integration launcher і covariance experiment
+залишаються на історичному значенні 6. Перед новим спільним тестом потрібно
+погодити profile і прочитати фактичні параметри з FCU; не переносити висновки
+старого експерименту на profile 0 без нового запуску.
+Детальніше: [SITL profile provenance](SITL.md).
+
+### ExternalNav output analyzer
+
+[ExternalNav wire validation](EXTERNAL_NAV.md) описує `analyze_external_nav.py`:
+read-only аналіз MAVLink 2 position/speed з `.tlog` або raw capture, окремі
+rate/gap/dropout/recovery, sender timestamps і covariance checks. Є 12 нових
+синтетичних offline tests. Без arrival timestamps timing — NOT TESTED;
+кількість пакетів не є EKF acceptance. Документ містить observer capture
+recipe без припущення про ArduPilot echo. Нових live-перевірок не виконано.

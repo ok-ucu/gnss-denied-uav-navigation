@@ -210,3 +210,22 @@ Raw TLOG `.raw`, terrain/EEPROM і декодований `dataflash_selected.cs
 і штучний drift не є камерним VIO. Точні innovation accepted/rejected counts
 4.4.4 без instrumentation недоступні. Підтверджений результат обмежений
 synthetic disarmed сценарієм зі [звіту](experiments/ekf444_covariance_20261104/REPORT.md).
+
+
+## Розбіжність із новішим профілем Людини 1 (аудит 2026-11-06)
+
+| Snapshot | EK3_SRC1_VELZ | Статус |
+|---|---:|---|
+| Integration, джерело `98a84ba861a5c9748517cc9437bc64f6a1c2cb33` | 6 (ExternalNav) | Використаний у наявному covariance experiment |
+| Новіший origin/sitl-stand `e5045d41efd449146bd212170eaa3e063a88b813` | 0 (None) | Інший source-set profile; спільний integration test не проведений |
+
+`integration/sitl_ext_nav.parm`, baseline-перевірки та історичні логи навмисно
+не змінені. Новіші параметри не були merged/cherry-picked. Назва source branch
+не гарантує однакового profile: перед новим запуском потрібно погодити контракт
+з Людиною 1 і зробити live parameter readback. Саме зміна VELZ не доводить ні
+готовності EKF3, ні реакції на covariance. Нових live-висновків тут немає.
+
+Для паралельних rate-тестів запускайте `check_integration.py --passive`, щоб його
+власні 5 Hz interval requests не перезаписали частоти VIO/probe. Default-поведінка
+монітора та `SITL_STREAMRATE=10` збережені; для explicit interval owner залишається
+opt-in `SITL_STREAMRATE=-1`. [Нові offline-перевірки](README.md).

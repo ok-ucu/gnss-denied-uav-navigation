@@ -131,6 +131,16 @@ class AnalysisTests(unittest.TestCase):
                     [(20., (0,0,0)), (21., (0,0,0))]):
             with self.assertRaises(ValueError): compare(truth, vio, True)
 
+    def test_nonfinite_offsets_and_gap_rejected(self):
+        from analyze_trajectories import load
+        for value in (float('nan'), float('inf'), -float('inf')):
+            with self.subTest(value=value):
+                with self.assertRaisesRegex(ValueError, 'offset'):
+                    load('unused-path', offset=value)
+                with self.assertRaisesRegex(ValueError, 'max-gap'):
+                    compare([(0,(0,0,0)), (1000,(1000,0,0))],
+                            [(1,(1,0,0)), (2,(2,0,0))], True, value)
+
 
 class MonitorTests(unittest.TestCase):
     def test_stream_loss_recovery_source_filter_and_csv(self):
@@ -172,6 +182,27 @@ class MonitorTests(unittest.TestCase):
             self.assertEqual(monitor_main(), 1)
         self.assertIn('timeout', error.getvalue())
         master.close.assert_called_once()
+
+    def test_passive_main_sends_no_commands_and_default_still_requests(self):
+        from unittest.mock import mock_open
+        for passive in (True, False):
+            heartbeat = NS(autopilot=3, get_srcSystem=lambda: 1, get_srcComponent=lambda: 1)
+            master = Mock()
+            master.recv_match.return_value = heartbeat
+            mavutil = Mock()
+            mavutil.mavlink_connection.return_value = master
+            argv = ['monitor', '--duration', '1'] + (['--passive'] if passive else [])
+            with patch.dict(sys.modules, {'pymavlink': NS(mavutil=mavutil)}), \
+                 patch.object(sys, 'argv', argv), \
+                 patch('check_integration.open', mock_open(), create=True), \
+                 patch('check_integration.monitor'):
+                self.assertEqual(monitor_main(), 0)
+            if passive:
+                self.assertEqual(master.mav.method_calls, [])
+            else:
+                self.assertEqual(master.mav.command_long_send.call_count, 2)
+                self.assertEqual([c.args[4] for c in master.mav.command_long_send.call_args_list], [193,32])
+            master.close.assert_called_once()
 
     def test_transport_exception_keeps_flushed_data(self):
         master = Mock(target_system=1, target_component=1)

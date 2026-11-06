@@ -42,6 +42,8 @@ def gps_to_enu(lat, lon, alt, origin):
 
 
 def load(path, fmt='enu', time_column='timestamp', unit='s', origin=None, offset=0):
+    if not math.isfinite(offset):
+        raise ValueError('Time offset must be finite')
     rows = []
     with open(path, newline='') as stream:
         reader = csv.DictReader(stream)
@@ -53,6 +55,8 @@ def load(path, fmt='enu', time_column='timestamp', unit='s', origin=None, offset
                 raise ValueError('ENU requires east,north,up or east_m,north_m,up_m')
         for row in reader:
             t = timestamp(row[time_column], unit)+offset
+            if not math.isfinite(t):
+                raise ValueError('Adjusted timestamp must be finite')
             if fmt == 'enu':
                 pos = tuple(float(row[k]) for k in columns)
             elif fmt == 'ned':
@@ -75,8 +79,8 @@ def compare(truth, vio, synchronized=False, max_gap=0.2):
     if not synchronized:
         warnings.warn('Clock synchronization unconfirmed: refusing trajectory comparison')
         raise ValueError('Confirm a shared clock or measured time offset with --synchronized')
-    if max_gap <= 0:
-        raise ValueError('max-gap must be positive')
+    if not math.isfinite(max_gap) or max_gap <= 0:
+        raise ValueError('max-gap must be finite and positive')
     times = [row[0] for row in truth]
     errors, matched = [], []
     for t, position in vio:

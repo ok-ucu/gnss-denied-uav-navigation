@@ -3,6 +3,8 @@
 import argparse
 import csv
 import json
+import math
+import statistics
 from pathlib import Path
 import time
 
@@ -17,6 +19,54 @@ def phase_at(elapsed):
         if elapsed < end:
             return name, vx, vy
     return 'stop', 0, 0
+
+
+def evaluate_motion(frames, odometry, flows, min_displacement=.1):
+    """Verdict from measurements, never command counts or successful process exit.
+
+    Threshold is metres per commanded axis. Pixel checks cover signs only at
+    identity attitude; insufficient tracks leave that check NOT TESTED.
+    """
+    if not math.isfinite(min_displacement) or min_displacement <= 0:
+        raise ValueError('Minimum displacement must be finite and positive')
+    failures = []
+    measured = {}
+    for phase, axis in [('world_x', 'x'), ('world_y', 'y')]:
+        images = [f for f in frames if f['phase'] == phase]
+        poses = [o for o in odometry if o['phase'] == phase]
+        if len(images) < 2:
+            failures.append(f'{phase}: missing camera frames')
+        if len(poses) < 2:
+            failures.append(f'{phase}: missing odometry')
+            continue
+        values = [float(o[axis]) for o in poses]
+        delta = values[-1] - values[0]
+        measured[phase] = delta
+        if not all(math.isfinite(v) for v in values) or delta < min_displacement:
+            failures.append(f'{phase}: insufficient positive measured displacement')
+    movement_status = 'FAIL' if failures else 'PASS'
+    optical = {'status': 'NOT TESTED', 'reason': 'Insufficient consistent feature tracks or unverified attitude'}
+    identity = bool(odometry) and all(
+        all(k in o and math.isfinite(float(o[k])) and abs(float(o[k])-expected) < 1e-3
+            for k, expected in [('qx', 0), ('qy', 0), ('qz', 0), ('qw', 1)])
+        for o in odometry)
+    directions = {}
+    for phase, pixel in [('world_x', 'dv_px'), ('world_y', 'du_px')]:
+        pairs = [f for f in flows if f['phase'] == phase and f.get('previous_phase') == phase
+                 and float(f.get('dt_s', 0)) > 0 and int(f.get('tracks', 0)) >= 4
+                 and math.isfinite(float(f[pixel]))]
+        if len(pairs) >= 3:
+            directions[phase] = statistics.median(float(f[pixel]) for f in pairs)
+    if identity and len(directions) == 2:
+        optical = {'status': 'PASS' if all(v > .01 for v in directions.values()) else 'FAIL',
+                   'median_dominant_shift_px': directions,
+                   'scope': 'Positive-axis pixel signs only; not flow magnitude or VIO accuracy'}
+        if optical['status'] == 'FAIL':
+            failures.append('Measured pixel direction does not match positive-axis motion')
+    return dict(status='FAIL' if failures else 'PASS' if optical['status'] == 'PASS' else 'NOT TESTED',
+                movement_status=movement_status, optical_flow=optical,
+                measured_displacement_m=measured, minimum_displacement_m=min_displacement,
+                failures=failures)
 
 
 def main():
@@ -92,6 +142,8 @@ def main():
     node.create_subscription(Image, '/camera/image_raw', image, qos_profile_sensor_data)
     node.create_subscription(Odometry, '/model/camera_drone/odometry', odom, qos_profile_sensor_data)
     node.create_subscription(Clock, '/clock', clock, qos_profile_sensor_data)
+    completed = False
+    result = None
     try:
         deadline=time.monotonic()+10
         while time.monotonic()<deadline:
@@ -109,6 +161,7 @@ def main():
                 commands.append(dict(wall_s=elapsed,phase=phase,vx=vx,vy=vy,sim_clock_s=state['clock']))
                 last_send=elapsed
             rclpy.spin_once(node, timeout_sec=.005)
+        completed = True
     finally:
         # Send zero repeatedly while transport is alive, even on a processing error.
         state['active']=False
@@ -118,11 +171,17 @@ def main():
             with (args.output_dir/(name+'.csv')).open('w',newline='') as f:
                 if rows:
                     writer=csv.DictWriter(f,fieldnames=list(rows[0]));writer.writeheader();writer.writerows(rows)
+        result = evaluate_motion(frames, odometry, flows)
+        if not completed:
+            result['status'] = 'FAIL'
+            result['failures'].append('Capture interrupted or failed')
         (args.output_dir/'capture.json').write_text(json.dumps(dict(frames=len(frames),flow_pairs=len(flows),
             odometry=len(odometry),commands=len(commands),phases=PHASES,
+            status=result['status'], verdict=result,
             scope='Gazebo kinematic camera only; independent image tracking, no VIO/ArduPilot'),indent=2)+'\n')
         node.destroy_node(); rclpy.shutdown()
+    return {'PASS': 0, 'FAIL': 1, 'NOT TESTED': 2}[result['status']]
 
 
 if __name__=='__main__':
-    main()
+    raise SystemExit(main())

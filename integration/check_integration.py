@@ -66,6 +66,8 @@ def main():
     parser.add_argument('--connect-timeout', type=float, default=15)
     parser.add_argument('--telemetry-timeout', type=float, default=5)
     parser.add_argument('--duration', type=float)
+    parser.add_argument('--passive', action='store_true',
+                        help='Observe only; do not request message intervals or stream rates')
     args = parser.parse_args()
     if min(args.connect_timeout, args.telemetry_timeout, args.duration or 1) <= 0:
         parser.error('timeouts and duration must be positive')
@@ -84,7 +86,7 @@ def main():
                 master.target_component = heartbeat.get_srcComponent()
                 break
         with open(args.output, 'w', newline='') as stream:
-            for message_id in (193, 32):
+            for message_id in (() if args.passive else (193, 32)):
                 master.mav.command_long_send(master.target_system, master.target_component,
                     mavutil.mavlink.MAV_CMD_SET_MESSAGE_INTERVAL, 0,
                     message_id, 200000, 0, 0, 0, 0, 0)
