@@ -94,17 +94,29 @@ def main():
     ap.add_argument("--video", default=None, help="відео/номер камери; без нього працює SimVisualSensor")
     ap.add_argument("--ros-image", default=None, metavar="TOPIC",
                     help="топік sensor_msgs/Image із Gazebo (ROS 2), напр. /camera/image_raw")
+    ap.add_argument("--ros-sim-time", action="store_true",
+                    help="годинник ROS-вузла = /clock Gazebo: тоді latency_ms включає "
+                         "вік кадра (stamp -> прийом); потрібен міст /clock")
     ap.add_argument("--fx", type=float, default=500.0, help="фокусна відстань камери, пікселі")
-    ap.add_argument("--vertical", choices=["range", "ap"], default=None,
+    ap.add_argument("--vertical", choices=["range", "ap", "auto"], default=None,
                     help="звідки брати висоту/вертикаль: range - лише далекомір "
-                         "(незалежно від EKF3), ap - з LOCAL_POSITION_NED автопілота. "
-                         "За замовчуванням: range для камери, ap для SimVisualSensor")
+                         "(незалежно від EKF3), ap - з LOCAL_POSITION_NED автопілота, "
+                         "auto - далекомір, поки він живий і дивиться вниз, інакше висота "
+                         "автопілота (з попередженням). За замовчуванням: auto для камери, "
+                         "ap для SimVisualSensor")
+    ap.add_argument("--mute-at", type=float, default=None, metavar="S",
+                    help="тест EKF3: через S с після старту на --mute-for с припинити відправку "
+                         "в ArduPilot (STATUSTEXT 'VIO: MUTE START/END'); див. check_ekf.py")
+    ap.add_argument("--mute-for", type=float, default=10.0, metavar="S")
     ap.add_argument("--max-latency-ms", type=float, default=50.0,
                     help="поріг попередження про затримку кадр -> MAVLink")
+    ap.add_argument("--ros-odom", default=None, metavar="TOPIC",
+                    help="топік nav_msgs/Odometry для виходу VIO (за замовчуванням /vio/odom, "
+                         "коли є --ros-image); поряд іде /vio/status")
     args = ap.parse_args()
 
     use_camera = args.video is not None or args.ros_image is not None
-    vertical = args.vertical or ("range" if use_camera else "ap")
+    vertical = args.vertical or ("auto" if use_camera else "ap")
 
     master = mavutil.mavlink_connection(args.conn)
     print("Чекаю heartbeat...")
@@ -140,21 +152,50 @@ def main():
     eof_reported = False
     if args.ros_image is not None:
         from vio_ros_source import RosFrameSource
-        ros = RosFrameSource(args.ros_image)
+        ros = RosFrameSource(args.ros_image, use_sim_time=args.ros_sim_time)
         frontend = FlowFrontend(fx=args.fx)
         print(f"Кадри з ROS 2: {args.ros_image}")
+        if not args.ros_sim_time:
+            print("УВАГА: без --ros-sim-time затримка рахується лише від прийому кадра вузлом")
     elif args.video is not None:
-        is_file = not args.video.isdigit()
-        cap = cv2.VideoCapture(args.video if is_file else int(args.video))
+        v = args.video
+        is_pipeline = "!" in v                       # GStreamer-пайплайн
+        is_stream = is_pipeline or "://" in v        # udp://, rtsp://...
+        is_file = not (v.isdigit() or is_stream)     # лише справжній файл програється "за годинником"
+        if v.isdigit():
+            cap = cv2.VideoCapture(int(v))
+        elif is_pipeline:
+            cap = cv2.VideoCapture(v, cv2.CAP_GSTREAMER)
+        else:
+            cap = cv2.VideoCapture(v)
+        if not cap.isOpened():
+            raise SystemExit(f"Не вдалося відкрити джерело відео: {v}\n"
+                             "(для пайплайна потрібен OpenCV зі збіркою GStreamer: "
+                             "перевір cv2.getBuildInformation())")
         fps = cap.get(cv2.CAP_PROP_FPS)
         if fps and fps > 1.0:
             video_fps = fps
         frontend = FlowFrontend(fx=args.fx)
+    odom = None
+    odom_topic = args.ros_odom or ("/vio/odom" if ros is not None else None)
+    if odom_topic:
+        from vio_ros_out import RosOdomPublisher
+        odom = RosOdomPublisher(node=ros.node if ros is not None else None,
+                                topic=odom_topic, use_sim_time=args.ros_sim_time)
+        print(f"Публікую Odometry: {odom_topic} (odom_ned/base_link_frd), статус: /vio/status")
+    source_name = ("optical_flow:ros" if ros is not None else
+                   "optical_flow:video" if cap is not None else "SIMULATED")
     gyro = np.zeros(3)
     h_local = 1.0
     h_range, t_range = None, 0.0
     t_range_upd = 0.0
     warned_range = False
+    range_buf = collections.deque(maxlen=3)      # медіана з 3: прибирає поодинокі викиди
+    n_rng = n_rng_bad = 0
+    t_loc = 0.0
+    last_h, h_src = float("nan"), "none"
+    ratio_bad, warned_ratio = 0, False
+    was_muted = False
 
     roll = pitch = yaw = 0.0
     have_att = False
@@ -167,6 +208,7 @@ def main():
     paused = False
     force_out = False            # щойно була корекція від камери - шлемо одразу
     pending_wall = None          # момент отримання кадра, що ще не пішов у MAVLink
+    pending_age = 0.0            # вік кадра на момент отримання (stamp -> прийом), с
     last_nis = float("nan")
     last_inl, last_sig = "", ""
     lat_max = lat_sum = 0.0
@@ -176,6 +218,8 @@ def main():
 
     n_imu = n_pred = n_skip = n_kin = 0
     n_att = n_sim = n_loc = 0
+    n_cam = 0                    # кадри, отримані за останню секунду
+    stamp_first = stamp_last = None
     dt_max = 0.0
     t_rep = time.time()
 
@@ -183,7 +227,10 @@ def main():
     log = csv.writer(logf)
     log.writerow(["t", "x", "y", "z", "vx", "vy", "vz", "true_n", "true_e",
                   "err_xy", "quality", "accepted", "rejected", "nis", "n_inliers",
-                  "sigma_v", "latency_ms"])
+                  "sigma_v", "latency_ms", "ap_vn", "ap_ve", "pos_var", "speed_var", "h_used"])
+    if use_camera:
+        print("Джерело швидкості: ОПТИЧНИЙ ПОТІК. SIMSTATE/LOCAL_POSITION_NED у логі "
+              "лише як істина для порівняння (колонки true_*, ap_*), у фільтр не йдуть.")
     print("VIO працює. Зупинка: Ctrl+C")
 
     try:
@@ -236,9 +283,10 @@ def main():
                     sensor.feed_local(msg.vx, msg.vy, msg.vz)
                     n_loc += 1
                     h_local = max(-msg.z, 0.5)
+                    t_loc = now
                     # у режимі "ap" вертикаль підтримуємо з автопілота; у режимі
                     # "range" LOCAL_POSITION_NED тут НЕ використовується взагалі
-                    if vertical == "ap":
+                    if vertical == "ap" or (vertical == "auto" and now - t_range >= 0.5):
                         if not z_init:
                             ekf.x[2], ekf.x[5] = msg.z, msg.vz
                             z_init = True
@@ -246,13 +294,20 @@ def main():
                             ekf.update_vertical(msg.z, msg.vz)
                             last_vert = now
                 elif ty == "DISTANCE_SENSOR":
+                    n_rng += 1
                     d = msg.current_distance / 100.0
-                    if msg.min_distance / 100.0 <= d <= msg.max_distance / 100.0:
+                    lo, hi = msg.min_distance / 100.0, msg.max_distance / 100.0
+                    if getattr(msg, "orientation", 25) != 25:
+                        # 25 = вниз (PITCH_270). Далекомір в іншу сторону зіпсував би висоту
+                        n_rng_bad += 1
+                    elif lo <= d < hi - 0.05:        # d біля max = "нічого не видно", не висота
+                        range_buf.append(d)
+                        d_med = float(np.median(range_buf))
                         # далекомір міряє вздовж осі дрона: у висоту по вертикалі
                         # переводимо через нахил
                         cos_tilt = max(float(rot_body_to_ned(roll, pitch, yaw)[2, 2]), 0.5)
-                        h_range, t_range = d * cos_tilt, now
-                        if vertical == "range":
+                        h_range, t_range = d_med * cos_tilt, now
+                        if vertical in ("range", "auto"):
                             if not z_init:
                                 ekf.x[2] = -h_range
                                 z_init = True
@@ -260,14 +315,19 @@ def main():
                                 ekf.update_height(-h_range)
                                 t_range_upd = now
 
-            if vertical == "range" and use_camera and not warned_range \
+            if vertical in ("range", "auto") and use_camera and not warned_range \
                     and now - t0 > 5.0 and h_range is None:
-                print("!!! Немає DISTANCE_SENSOR: без висоти швидкість не порахувати. "
-                      "Підключи далекомір або запусти з --vertical ap")
+                if vertical == "range":
+                    print("!!! Немає DISTANCE_SENSOR: без висоти швидкість не порахувати. "
+                          "Підключи далекомір або запусти з --vertical auto/ap")
+                else:
+                    print("!!! Немає придатного DISTANCE_SENSOR (немає повідомлень, не вниз або "
+                          "поза діапазоном): масштаб потоку береться з висоти EKF3, тобто НЕ "
+                          "незалежний. Діагностика: check_range.py")
                 warned_range = True
 
             # ---------- вимірювання від камери ----------
-            frame = None                       # (gray, t_frame, t_wall)
+            frame = None                       # (gray, t_frame, t_wall, age_s)
             if have_att and ros is not None:
                 frame = ros.poll()
             elif have_att and cap is not None and now - last_vis >= 1.0 / args.vis_rate:
@@ -285,7 +345,7 @@ def main():
                         if got:
                             frame_idx = target
                             frame = (cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY),
-                                     frame_idx / video_fps, time.time())
+                                     frame_idx / video_fps, time.time(), 0.0)
                         else:
                             monitor.push(False, now)
                             rejected += 1
@@ -295,7 +355,7 @@ def main():
                 else:
                     got, bgr = cap.read()
                     if got:
-                        frame = (cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY), time.time(), time.time())
+                        frame = (cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY), time.time(), time.time(), 0.0)
                     else:
                         monitor.push(False, now)
                         rejected += 1
@@ -304,15 +364,19 @@ def main():
                             eof_reported = True
 
             if frame is not None:
-                gray, t_frame, t_wall = frame
+                gray, t_frame, t_wall, t_age = frame
+                n_cam += 1
+                stamp_first = t_frame if stamp_first is None else stamp_first
+                stamp_last = t_frame
                 # висота: свіжий далекомір, інакше (лише в режимі ap) LOCAL_POSITION_NED;
                 # у режимі range без далекоміра висоти немає => кадр відкидається
                 if h_range is not None and now - t_range < 0.5:
-                    h = h_range
-                elif vertical == "ap":
-                    h = h_local
+                    h, h_src = h_range, "range"
+                elif vertical in ("ap", "auto"):
+                    h, h_src = h_local, "ap"
                 else:
-                    h = 0.0
+                    h, h_src = 0.0, "none"
+                last_h = h
                 res = frontend.process(gray, t_frame, h, gyro,
                                        rot_body_to_ned(roll, pitch, yaw))
                 if res is None:                  # кадр непридатний
@@ -327,7 +391,7 @@ def main():
                     last_inl, last_sig = res.n_inliers, res.sigma_v
                     if ok:
                         force_out = True
-                        pending_wall = t_wall
+                        pending_wall, pending_age = t_wall, (t_age or 0.0)
             elif have_att and cap is None and ros is None and now - last_vis >= 1.0 / args.vis_rate:
                 # імітована камера
                 last_vis = now
@@ -339,7 +403,7 @@ def main():
                     rejected += (not ok)
                     if ok:
                         force_out = True
-                        pending_wall = now
+                        pending_wall, pending_age = now, 0.0
 
             # ---------- вихід в ArduPilot ----------
             if have_att and (force_out or now - last_out >= 1.0 / args.rate):
@@ -352,7 +416,16 @@ def main():
                 vx, vy, vz = ekf.x[3:6]
                 lat_ms = float("nan")
 
-                if q >= MIN_SEND_Q:
+                muted = args.mute_at is not None and \
+                    args.mute_at <= now - t0 < args.mute_at + args.mute_for
+                if muted != was_muted:
+                    was_muted = muted
+                    master.mav.statustext_send(
+                        mavutil.mavlink.MAV_SEVERITY_NOTICE,
+                        b"VIO: MUTE START" if muted else b"VIO: MUTE END")
+                    print("VIO: відправку в ArduPilot " + ("ПРИПИНЕНО (тест)" if muted else "відновлено"))
+
+                if q >= MIN_SEND_Q and not muted:
                     if paused:
                         paused = False
                         print("VIO знову відправляє дані")
@@ -360,10 +433,15 @@ def main():
                         usec, x, y, z, roll, pitch, yaw, ekf.pose_cov(infl))
                     master.mav.vision_speed_estimate_send(
                         usec, vx, vy, vz, ekf.speed_cov(infl))
+                    if odom is not None:
+                        odom.publish(rot_body_to_ned(roll, pitch, yaw), ekf.x[0:3], ekf.x[3:6],
+                                     ekf.P[0:3, 0:3] * infl, ekf.P[3:6, 3:6] * infl,
+                                     3e-4 * infl)
                     n_out += 1
                     if pending_wall is not None:
-                        # затримка: від отримання кадра до відправки пакета
-                        lat_ms = (time.time() - pending_wall) * 1000.0
+                        # повна затримка: вік кадра при отриманні (stamp -> вузол,
+                        # якщо відомий) + обробка до відправки пакета
+                        lat_ms = (pending_age + time.time() - pending_wall) * 1000.0
                         pending_wall = None
                         lat_max = max(lat_max, lat_ms)
                         lat_sum += lat_ms
@@ -372,7 +450,7 @@ def main():
                             print(f"УВАГА: затримка кадр->MAVLink {lat_ms:.0f} мс "
                                   f"> {args.max_latency_ms:.0f} мс")
                             lat_warned = True
-                elif not paused:
+                elif q < MIN_SEND_Q and not paused:
                     # даних майже немає - краще мовчати, ніж слати дрейф від IMU
                     paused = True
                     print("!!! VIO: даних немає, відправку зупинено")
@@ -392,7 +470,10 @@ def main():
                 log.writerow([f"{now - t0:.3f}", x, y, z, vx, vy, vz,
                               sensor.n, sensor.e, err, q, accepted, rejected,
                               last_nis, last_inl if frontend else "",
-                              last_sig if frontend else "", lat_ms])
+                              last_sig if frontend else "", lat_ms,
+                              sensor.v_local[0] if sensor.v_local is not None else "",
+                              sensor.v_local[1] if sensor.v_local is not None else "",
+                              ekf.P[0, 0] * infl, ekf.P[3, 3] * infl, last_h])
                 last_nis = float("nan")
 
             if now - t_rep >= 1.0:
@@ -402,11 +483,45 @@ def main():
                       f"ATT {n_att}, SIMSTATE {n_sim}, LOCAL {n_loc} | "
                       f"вихід {n_out} Гц, затримка сер/макс {lat_txt} | "
                       f"перезапусків швидкості {ekf.n_resets}")
+                if use_camera:
+                    win = now - t_rep
+                    rtf = ((stamp_last - stamp_first) / win) if n_cam > 1 and win > 0 else float("nan")
+                    extra = ""
+                    if ros is not None:
+                        extra = (f", усього {ros.n_frames}, непідтримане кодування {ros.n_unsupported}, "
+                                 f"поза межами віку {ros.n_bad_age}")
+                    print(f"КАМЕРА {n_cam} кадр/с (stamp-час/реальний = {rtf:.2f}){extra}")
+                    if n_cam == 0 and now - t0 > 5.0:
+                        print("!!! Кадрів немає: перевір топік (ros2 topic hz), міст Gazebo->ROS, "
+                              "QoS та чи не на паузі симуляція")
+                if use_camera and vertical in ("range", "auto", "ap"):
+                    ratio = float("nan")
+                    if h_range is not None and now - t_range < 1.0 and h_local >= 1.5 and now - t_loc < 1.0:
+                        ratio = h_range / h_local
+                    print(f"ВИСОТА: джерело {h_src}, h={last_h:.2f} м | DISTANCE_SENSOR {n_rng}/с "
+                          f"(не вниз: {n_rng_bad}) | range/EKF3 = {ratio:.2f}")
+                    ratio_bad = ratio_bad + 1 if (np.isfinite(ratio) and not 0.7 <= ratio <= 1.4) else 0
+                    if ratio_bad >= 3 and not warned_ratio:
+                        print("!!! Далекомір і висота EKF3 розходяться більш ніж у 1.4 раза: масштаб "
+                              "потоку хибний. Перевір RNGFND1_SCALING/ORIENT/MIN/MAX і чи земля на "
+                              "висоті home. Діагностика: check_range.py")
+                        warned_ratio = True
+                if odom is not None:
+                    odom.publish_status(
+                        source=source_name, quality=monitor.quality(now),
+                        frames_in=(ros.n_frames if ros is not None else None),
+                        frames_per_s=n_cam, accepted=accepted, rejected=rejected,
+                        odom_published=odom.n_pub, speed_resets=ekf.n_resets,
+                        last_frame_stamp=stamp_last, paused=paused,
+                        height_source=h_src, h_used=last_h)
                 if n_imu < 30:
                     print("УВАГА: RAW_IMU приходить лише "
                           f"{n_imu} Гц - частоти повідомлень збиті (GCS/MAVProxy?)")
                 n_imu = n_pred = n_skip = n_kin = 0
                 n_att = n_sim = n_loc = n_out = 0
+                n_cam = 0
+                n_rng = n_rng_bad = 0
+                stamp_first = stamp_last = None
                 lat_max = lat_sum = 0.0
                 lat_n = 0
                 dt_max = 0.0
@@ -415,6 +530,8 @@ def main():
         print("\nЗупинено.")
     finally:
         logf.close()
+        if odom is not None:
+            odom.close()
         if ros is not None:
             ros.close()
 

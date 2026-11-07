@@ -30,19 +30,24 @@ def image_to_gray(msg):
 
 
 class RosFrameSource:
-    def __init__(self, topic, node_name="vio_frontend"):
+    def __init__(self, topic, node_name="vio_frontend", use_sim_time=False):
         import rclpy                                   # ліниво: без ROS решта працює
         from rclpy.qos import qos_profile_sensor_data
         from sensor_msgs.msg import Image
         self._rclpy = rclpy
         if not rclpy.ok():
             rclpy.init()
-        self.node = rclpy.create_node(node_name)
+        overrides = []
+        if use_sim_time:        # годинник вузла = /clock із Gazebo, тоді вік кадра має сенс
+            from rclpy.parameter import Parameter
+            overrides = [Parameter("use_sim_time", Parameter.Type.BOOL, True)]
+        self.node = rclpy.create_node(node_name, parameter_overrides=overrides)
         self.node.create_subscription(Image, topic, self._cb, qos_profile_sensor_data)
         self._lock = threading.Lock()
         self._latest = None
         self.n_frames = 0
         self.n_unsupported = 0
+        self.n_bad_age = 0
         self._thread = threading.Thread(target=rclpy.spin, args=(self.node,), daemon=True)
         self._thread.start()
 
@@ -52,12 +57,18 @@ class RosFrameSource:
             self.n_unsupported += 1
             return
         stamp = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
+        # скільки секунд пройшло між формуванням кадра (stamp) і прийомом вузлом;
+        # має сенс лише коли годинник вузла збігається з джерелом stamp
+        age = self.node.get_clock().now().nanoseconds * 1e-9 - stamp
+        if not (0.0 <= age < 1.0):
+            age = None
+            self.n_bad_age += 1
         with self._lock:
-            self._latest = (gray, stamp, time.time())
+            self._latest = (gray, stamp, time.time(), age)
             self.n_frames += 1
 
     def poll(self):
-        """Повертає (gray, t_stamp, t_wall) один раз для кожного нового кадра."""
+        """Повертає (gray, t_stamp, t_wall, age_s|None) один раз для кожного нового кадра."""
         with self._lock:
             item, self._latest = self._latest, None
         return item

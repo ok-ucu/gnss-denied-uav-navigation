@@ -70,6 +70,68 @@ def main():
     else:
         print("[--] замало NIS-вимірів (<30)")
 
+    # --- знаки та осі: швидкість VIO проти швидкості автопілота (LOCAL_POSITION_NED) ---
+    def pairs(a_name, b_name):
+        xs, ys = [], []
+        for r in rows:
+            try:
+                x, y = float(r[a_name]), float(r[b_name])
+            except (KeyError, ValueError):
+                continue
+            if not (math.isnan(x) or math.isnan(y)):
+                xs.append(x); ys.append(y)
+        return np.array(xs), np.array(ys)
+
+    for axis, vio, ap_ in (("північ (вперед при курсі 0)", "vx", "ap_vn"), ("схід (вбік вправо при курсі 0)", "vy", "ap_ve")):
+        v, ref = pairs(vio, ap_)
+        if len(v) < 30 or np.max(np.abs(ref)) < 0.5:
+            print(f"[--] вісь {axis}: рух по ній не збуджено (|v| < 0.5 м/с) - політай уздовж цієї осі")
+            continue
+        slope = float(np.dot(v, ref) / np.dot(ref, ref))
+        if np.std(ref) > 0.1 and np.std(v) > 0:
+            corr = float(np.corrcoef(v, ref)[0, 1])      # швидкість змінювалась - дивимось кореляцію
+        else:
+            corr = 1.0 if slope > 0 else -1.0            # стала швидкість: кореляція не визначена
+        good = corr > 0.5 and 0.7 < slope < 1.3
+        ok_all &= good
+        hint = ""
+        if not good:
+            hint = " -> ЗНАК ІНВЕРТОВАНИЙ" if slope < -0.3 else " -> перевір осі/масштаб (fx, висота)"
+            other = pairs(vio, "ap_ve" if ap_ == "ap_vn" else "ap_vn")
+            if len(other[0]) > 30 and np.std(other[0]) > 0 and np.std(other[1]) > 0 \
+                    and abs(np.corrcoef(*other)[0, 1]) > abs(corr) and abs(corr) < 0.5:
+                hint += "; схоже, осі x/y переплутані"
+        print(f"[{'OK' if good else 'FAIL'}] вісь {axis}: нахил VIO/автопілот {slope:.2f} "
+              f"(очікується ~1), кореляція {corr:.2f}{hint}")
+
+    # --- прийняті/відхилені вимірювання ---
+    if rows:
+        try:
+            acc, rej = int(float(rows[-1]["accepted"])), int(float(rows[-1]["rejected"]))
+            tot = max(acc + rej, 1)
+            print(f"[info] вимірювань камери: прийнято {acc}, відхилено {rej} ({100 * rej / tot:.0f}% відмов)")
+        except (KeyError, ValueError):
+            pass
+
+    # --- covariance має рости при погіршенні якості ---
+    qv, pv = [], []
+    for r in rows:
+        try:
+            qv.append(float(r["quality"])); pv.append(float(r["pos_var"]))
+        except (KeyError, ValueError):
+            pass
+    qv, pv = np.array(qv), np.array(pv)
+    if len(qv):
+        hi, lo = pv[qv > 0.9], pv[qv < 0.5]
+        if len(hi) >= 10 and len(lo) >= 10:
+            r_ = float(np.median(lo) / np.median(hi))
+            good = r_ > 2.0
+            ok_all &= good
+            print(f"[{'OK' if good else 'FAIL'}] covariance при поганій якості в {r_:.1f}x більша, "
+                  f"ніж при доброї (треба > 2x)")
+        else:
+            print("[--] деградації якості в логі немає - зроби тест: закрий/розмий камеру на кілька секунд")
+
     q = col(rows, "quality")
     sig = col(rows, "sigma_v")
     inl = col(rows, "n_inliers")
