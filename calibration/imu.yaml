@@ -1,0 +1,13 @@
+# IMU для Kalibr. Одиниці: рад/с, м/с^2 та їх коріння з часу; формат Kalibr.
+# УВАГА: у числах з експонентою ОБОВ'ЯЗКОВО десяткова крапка (8.0e-05, а не 8e-05) -
+# інакше Kalibr падає з TypeError.
+# Стартові значення "з запасом" для MEMS IMU польотного контролера, що іде через MAVLink.
+# Краще виміряти Allan variance (ori-drs/allan_variance_ros) на записі нерухомого дрона 2+ год.
+# Kalibr радить для реальних даних збільшувати шуми у 5-10 разів проти даташиту.
+rostopic: /imu0
+update_rate: 100.0                # РЕАЛЬНА частота з recorder.py (див. "IMU N/с"), не бажана
+
+accelerometer_noise_density: 0.02      # [m/s^2/sqrt(Hz)]
+accelerometer_random_walk: 0.002       # [m/s^3/sqrt(Hz)]
+gyroscope_noise_density: 0.002         # [rad/s/sqrt(Hz)]
+gyroscope_random_walk: 4.0e-05         # [rad/s^2/sqrt(Hz)]

@@ -1,0 +1,16 @@
+{
+  "imu": {
+    "model": {
+      "a_ns": 0.0,
+      "b_ns_per_s": 0.0,
+      "t0_ap_ns": 1.7e+18
+    },
+    "stats": {
+      "n": 500,
+      "drift_ppm": 0.0,
+      "latency_median_ms": 1.2,
+      "latency_p95_ms": 2.5,
+      "rate_hz": 100.0
+    }
+  }
+}

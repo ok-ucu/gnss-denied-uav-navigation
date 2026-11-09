@@ -1,0 +1,81 @@
+version: "3.9"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# GNSS-Denied UAV Navigation — Gazebo + ArduPilot SITL
+# Єдина команда запуску: docker compose up
+#
+# Вимога рев'ю: відтворюваний запуск одною командою (критерій #5)
+#
+# ВАЖЛИВО: перед першим запуском збери образ gz-ardupilot:
+#   cd ../gnss-denied-uav-navigation-sitl-stand/sitl-stand/gazebo-ardupilot
+#   docker build -t gz-ardupilot .
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+
+  # ── Сервіс 1: Gazebo з плагіном ArduPilot ───────────────────────────────
+  # Запускає фізичну симуляцію: iris_with_gimbal летить у 3D-середовищі.
+  # ArduPilot-плагін обмінюється з SITL через JSON-інтерфейс (порт 9002).
+  gazebo:
+    image: gz-ardupilot
+    network_mode: host
+    environment:
+      - LIBGL_ALWAYS_SOFTWARE=1
+      - DISPLAY=${DISPLAY:-:99}
+    command: >
+      gz sim -v3 -s -r --headless-rendering iris_runway.sdf
+    healthcheck:
+      test: ["CMD", "gz", "topic", "-l"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: on-failure
+
+  # ── Сервіс 2: ROS 2 Міст (Gazebo топіки → ROS 2 топіки) ────────────────
+  # Пробрасує камеру та IMU дрона в ROS 2 для VIO-алгоритму.
+  # /model/iris_with_gimbal/.../camera/image → /camera/image_raw
+  # /model/iris_with_gimbal/.../imu          → /imu
+  ros_bridge:
+    image: gz-ardupilot
+    network_mode: host
+    depends_on:
+      gazebo:
+        condition: service_healthy
+    environment:
+      - LIBGL_ALWAYS_SOFTWARE=1
+    command: >
+      bash -c "
+        source /opt/ros/jazzy/setup.bash &&
+        echo 'Очікування Gazebo...' &&
+        sleep 5 &&
+        echo 'Список gz-топіків:' &&
+        gz topic -l &&
+        echo 'Запуск ROS 2 мосту...' &&
+        ros2 run ros_gz_bridge parameter_bridge
+          /camera/image_raw@sensor_msgs/msg/Image[gz.msgs.Image
+          /camera/camera_info@sensor_msgs/msg/CameraInfo[gz.msgs.CameraInfo
+          /imu@sensor_msgs/msg/Imu[gz.msgs.IMU
+          /model/camera_drone/odometry@nav_msgs/msg/Odometry[gz.msgs.Odometry
+      "
+    restart: on-failure
+
+  # ── Сервіс 3: SITL↔Gazebo Python-синхронізатор ───────────────────────────
+  # Якщо ArduPilot SITL запущено на хості (run.sh gps), цей сервіс
+  # форвардить MAVLink-позицію в Gazebo-модель camera_drone через cmd_vel.
+  # Використовується ТІЛЬКИ з camera_world.sdf (не з iris_runway.sdf).
+  # Для iris_runway.sdf плагін ardupilot_gazebo сам є мостом — цей сервіс не потрібен.
+  sitl_sync:
+    image: gz-ardupilot
+    network_mode: host
+    profiles: ["camera_world"]   # запускати лише: docker compose --profile camera_world up
+    depends_on:
+      - ros_bridge
+    volumes:
+      - ./gazebo:/work/gazebo:ro
+    command: >
+      bash -c "
+        source /opt/ros/jazzy/setup.bash &&
+        sleep 8 &&
+        python3 /work/gazebo/sitl_gazebo_sync.py --conn udpin:127.0.0.1:14551
+      "
+    restart: on-failure
