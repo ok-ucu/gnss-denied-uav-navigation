@@ -1,0 +1,47 @@
+diff --git a/libraries/SITL/SIM_JSON.cpp b/libraries/SITL/SIM_JSON.cpp
+index 0d37e7529a..0363129692 100644
+--- a/libraries/SITL/SIM_JSON.cpp
++++ b/libraries/SITL/SIM_JSON.cpp
+@@ -23,6 +23,7 @@
+ #include <stdio.h>
+ #include <arpa/inet.h>
+ #include <errno.h>
++#include <time.h>
+ 
+ #include <AP_HAL/AP_HAL.h>
+ #include <AP_Logger/AP_Logger.h>
+@@ -356,6 +357,22 @@ void JSON::recv_fdm(const struct sitl_input &input)
+         // match actual frame rate with desired speedup
+         time_advance();
+     }
++    // Experiment only: observe applied physics state, never send navigation.
++    static FILE *trace = []() -> FILE * {
++        const char *path = getenv("GNSS_EXPERIMENT_TRACE");
++        return path ? fopen(path, "wx") : nullptr;
++    }();
++    if (trace != nullptr && frame_counter % 20 == 0) {
++        struct timespec wall{};
++        clock_gettime(CLOCK_MONOTONIC, &wall);
++        fprintf(trace, "%.9f,%u,%u,%.9f,%llu,%llu,%llu,%llu,%.6f\n",
++                state.timestamp_s, unsigned(state.no_time_sync), unsigned(use_time_sync),
++                deltat, (unsigned long long)time_now_us,
++                (unsigned long long)AP_HAL::micros64(),
++                (unsigned long long)wall.tv_sec * 1000000000ULL + wall.tv_nsec,
++                (unsigned long long)frame_time_us, double(rate_hz));
++        fflush(trace);
++    }
+     last_timestamp_s = state.timestamp_s;
+     frame_counter++;
+ 
+diff --git a/libraries/SITL/SIM_JSON.h b/libraries/SITL/SIM_JSON.h
+index 3f1aeab5e7..223ffe3d8e 100644
+--- a/libraries/SITL/SIM_JSON.h
++++ b/libraries/SITL/SIM_JSON.h
+@@ -43,6 +43,7 @@ public:
+     void set_interface_ports(const char* address, const int port_in, const int port_out) override;
+ 
+ private:
++    friend class JSONParserTestAccess;
+ 
+     struct servo_packet {
+         uint16_t magic = 18458; // constant magic value

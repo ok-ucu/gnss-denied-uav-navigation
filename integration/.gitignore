@@ -1,0 +1,46 @@
+# Generated local runs. Historical contents stay on disk; no Git deletion.
+/phase1_runs/
+/source_scope_audit/
+/ekf3_fusion_runs/
+/ekf3_readiness_runs/
+/fcu_reception_runs/
+/frame_bridge_runs/
+/gimbal_runs/
+/live_vio_preflight_runs/
+/mavros_prep_runs/
+/navigation_preflight_runs/
+/vio_diagnostic_runs/
+/vio_error_runs/
+/vio_imu_runs/
+/vio_integration_runs/
+/vio_stability_runs/
+/vio_stream_runs/
+
+# Full upstream checkout/build outputs are dependencies, not our source.
+/ardupilot_gazebo/source/
+/ardupilot_gazebo/build/
+/timesync_patch_runs/
+
+# One self-contained generated protocol SOURCE, required by the current runtime.
+# Everything else in this capture tree is local data, not a staging candidate.
+/mavros_live_runs/*
+!/mavros_live_runs/20261108/
+/mavros_live_runs/20261108/*
+!/mavros_live_runs/20261108/mavlink_v20.py
+
+# Preserve unique parser/build/mount source; exclude only runtime products.
+/isolated_blockers/20261109_a/work/
+/isolated_blockers/20261109_a/state/
+/isolated_blockers/20261109_a/evidence/*
+!/isolated_blockers/20261109_a/evidence/instrumentation.patch
+!/isolated_blockers/20261109_a/evidence/patched_c_gimbal_original.sdf
+/isolated_blockers/20261109_a/models/*
+!/isolated_blockers/20261109_a/models/patched_c/
+!/isolated_blockers/20261109_a/models/patched_c_world.sdf
+
+# Keep the three exact small regression inputs used by test_isolated_blockers.
+/matched_physics/analysis/
+/matched_physics/results/*
+!/matched_physics/results/SIM_JSON_review_20261109.cpp
+!/matched_physics/results/SIM_JSON_review_20261109.h
+!/matched_physics/results/camera_mount_review_20261109.json

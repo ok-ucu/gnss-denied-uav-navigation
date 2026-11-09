@@ -1,0 +1,20 @@
+{
+  "scope": "Passive matched-world camera mounting, no commands sent",
+  "samples": 546,
+  "min_deviation_deg": [
+    52.20990790153383,
+    144.43064427625146,
+    122.9088479542188
+  ],
+  "max_deviation_deg": [
+    52.20990790153383,
+    144.43064427625146,
+    122.9088479542188
+  ],
+  "axis_order": [
+    "view_to_body_down",
+    "image_right_to_body_right",
+    "image_down_to_body_back"
+  ],
+  "status": "HOLD"
+}

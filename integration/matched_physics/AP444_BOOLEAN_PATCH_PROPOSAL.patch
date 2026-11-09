@@ -1,0 +1,21 @@
+# REVIEW ONLY. Not applied or compiled. Existing binaries unchanged.
+--- a/libraries/SITL/SIM_JSON.cpp
++++ b/libraries/SITL/SIM_JSON.cpp
+@@ -206,7 +206,16 @@
+             }
+ 
+             case BOOLEAN:
+-                *((bool *)key.ptr) = strtoull(p, nullptr, 10) != 0;
++                while (*p == ' ' || *p == '\t') {
++                    ++p;
++                }
++                if (strncmp(p, "true", 4) == 0) {
++                    *((bool *)key.ptr) = true;
++                } else if (strncmp(p, "false", 5) == 0) {
++                    *((bool *)key.ptr) = false;
++                } else {
++                    *((bool *)key.ptr) = strtoull(p, nullptr, 10) != 0;
++                }
+                 //printf("%s/%s = %i\n", key.section, key.key, *((unit8_t *)key.ptr));
+                 break;
+ 

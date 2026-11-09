@@ -4,3 +4,20 @@ __pycache__/
 .pytest_cache/
 .DS_Store
 *.bag
+
+# Python environments and caches
+.venv/
+venv/
+*.egg-info/
+.mypy_cache/
+.ruff_cache/
+
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Integration outputs have exact directory rules in integration/.gitignore.
+# Do not globally hide CSV/JSONL/binary fixtures or source/config directories.

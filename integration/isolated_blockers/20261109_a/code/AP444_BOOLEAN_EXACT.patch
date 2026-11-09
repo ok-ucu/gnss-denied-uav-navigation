@@ -1,0 +1,63 @@
+--- a/libraries/SITL/SIM_JSON.cpp
++++ b/libraries/SITL/SIM_JSON.cpp
+@@ -130,6 +130,7 @@
+ uint32_t JSON::parse_sensors(const char *json)
+ {
+     uint32_t received_bitmask = 0;
++    state.no_time_sync = false;
+ 
+     //printf("%s\n", json);
+     for (uint16_t i=0; i<ARRAY_SIZE(keytable); i++) {
+@@ -206,10 +207,48 @@
+                 break;
+             }
+ 
+-            case BOOLEAN:
+-                *((bool *)key.ptr) = strtoull(p, nullptr, 10) != 0;
+-                //printf("%s/%s = %i\n", key.section, key.key, *((unit8_t *)key.ptr));
+-                break;
++            case BOOLEAN: {
++                // Exact JSON literals, plus legacy signed/unsigned decimal integers.
++                auto whitespace = [](char c) {
++                    return c == ' ' || c == '\t' || c == '\r' || c == '\n';
++                };
++                while (whitespace(*p)) {
++                    ++p;
++                }
++                const char *end = p;
++                bool value;
++                if (strncmp(p, "true", 4) == 0) {
++                    end = p + 4;
++                    value = true;
++                } else if (strncmp(p, "false", 5) == 0) {
++                    end = p + 5;
++                    value = false;
++                } else {
++                    const char *digits = p + ((*p == '+' || *p == '-') ? 1 : 0);
++                    if (*digits < '0' || *digits > '9') {
++                        printf("Invalid JSON boolean for %s\n", key.key);
++                        return 0;
++                    }
++                    char *numeric_end = nullptr;
++                    errno = 0;
++                    const auto number = strtoull(p, &numeric_end, 10);
++                    if (errno == ERANGE || numeric_end == p) {
++                        printf("Invalid JSON boolean integer for %s\n", key.key);
++                        return 0;
++                    }
++                    end = numeric_end;
++                    value = number != 0;
++                }
++                while (whitespace(*end)) {
++                    ++end;
++                }
++                if (*end != ',' && *end != '}' && *end != '\0') {
++                    printf("Invalid JSON boolean suffix for %s\n", key.key);
++                    return 0;
++                }
++                *((bool *)key.ptr) = value;
++                break;
++            }
+ 
+         }
+     }

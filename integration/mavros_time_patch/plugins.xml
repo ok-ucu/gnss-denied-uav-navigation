@@ -1,0 +1,5 @@
+<library path="gnss_mavros_time_patch">
+  <class name="sys_time_patched" type="mavros::plugin::PluginFactoryTemplate&lt;mavros::std_plugins::PatchedSystemTimePlugin&gt;" base_class_type="mavros::plugin::PluginFactory">
+    <description>Isolated signed-offset sys_time plugin, derived from MAVROS2.16.0.</description>
+  </class>
+</library>

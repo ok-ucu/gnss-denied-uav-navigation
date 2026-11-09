@@ -1,0 +1,12 @@
+/**:
+  ros__parameters:
+    use_sim_time: true
+    fcu_url: udp://127.0.0.1:14891@127.0.0.1:14890
+    gcs_url: ""
+    fcu_protocol: v2.0
+    tgt_system: 1
+    tgt_component: 1
+    plugin_allowlist: [sys_status, sys_time_patched, vision_pose, vision_speed]
+    timesync_mode: MAVLINK
+    timesync_rate: 10.0
+    convergence_window: 5

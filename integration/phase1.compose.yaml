@@ -1,0 +1,72 @@
+name: gnss-phase1-integrated-${P1_RUN_ID:?set P1_RUN_ID}
+services:
+  physics:
+    image: sha256:6a5215efd7798818523c309eb220753f5755115ed493cd70ada8ae4ed0b61e6b
+    container_name: gnss-p1-physics-${P1_RUN_ID:?set P1_RUN_ID}
+    networks: [isolated]
+    cpus: 1.8
+    mem_limit: 2g
+    environment: &ros_env
+      GZ_PARTITION: gnss-p1-integrated-${P1_RUN_ID:?set P1_RUN_ID}
+      ROS_DOMAIN_ID: '108'
+      LIBGL_ALWAYS_SOFTWARE: '1'
+      QT_QPA_PLATFORM: offscreen
+      PYTHONPATH: /opt/integration
+      FASTRTPS_DEFAULT_PROFILES_FILE: /opt/integration/live_vio_observer_udp.xml
+      GZ_SIM_SYSTEM_PLUGIN_PATH: /opt/ardupilot_gazebo/build
+      GZ_SIM_RESOURCE_PATH: /run/integration/models:/opt/ardupilot_gazebo/models:/opt/ardupilot_gazebo/worlds
+    volumes: &mounts
+      - ${INTEGRATION_ROOT:?set INTEGRATION_ROOT}:/opt/integration:ro
+      - ${PHASE1_RUN_ROOT:?set PHASE1_RUN_ROOT}:/run/integration
+      - ${VIO_ROOT:?set VIO_ROOT}:/opt/vio:ro
+    command: ['bash','-lc','source /opt/ros/jazzy/setup.bash; exec gz sim -s -r --headless-rendering -v 3 /run/integration/models/world.sdf']
+  fcu:
+    image: sha256:f5dffdb9f79ed8a7ff58aa7e6f6dfcbe2ebd2cead9fe7b20daea8d953b491540
+    container_name: gnss-p1-fcu-${P1_RUN_ID:?set P1_RUN_ID}
+    network_mode: service:physics
+    depends_on: [physics]
+    user: root
+    cpus: .2
+    mem_limit: 512m
+    volumes: *mounts
+    environment:
+      GNSS_EXPERIMENT_TRACE: /run/integration/evidence/applied.csv
+    entrypoint: bash
+    command: ['-lc','cd /run/integration/state/fcu; exec /opt/integration/isolated_blockers/20261109_a/evidence/arducopter_patched --model JSON --speedup 1 --home=-35.363261,149.165230,584,0 --defaults /home/docker/ardupilot/Tools/autotest/default_params/copter.parm,/home/docker/ardupilot/Tools/autotest/default_params/gazebo-iris.parm,/run/integration/artifacts/externalnav.parm --serial0 tcp:5760 --sim-port-out 9002']
+  vio:
+    image: sha256:6a5215efd7798818523c309eb220753f5755115ed493cd70ada8ae4ed0b61e6b
+    container_name: gnss-p1-vio-${P1_RUN_ID:?set P1_RUN_ID}
+    network_mode: service:physics
+    depends_on: [physics]
+    # 0.6 CPU proved insufficient for camera + 1kHz ROS IMU/clock + diagnostics.
+    # Bound at one CPU; keep the shorter scheduling period.
+    cpu_period: 10000
+    cpu_quota: 10000
+    mem_limit: 1g
+    environment:
+      <<: *ros_env
+      OPENBLAS_NUM_THREADS: '1'
+      OMP_NUM_THREADS: '1'
+    volumes: *mounts
+    entrypoint: sleep
+    command: ['infinity']
+  transport:
+    image: sha256:acd5f652ca1e72744c6427ed63d7d0805412ead3b1b1da95f2a2f08dcbfa7698
+    container_name: gnss-p1-transport-${P1_RUN_ID:?set P1_RUN_ID}
+    network_mode: service:physics
+    depends_on: [physics, fcu]
+    # MAVROS + guard use a bounded half CPU with at most 5ms quota blackout.
+    cpu_period: 10000
+    cpu_quota: 5000
+    mem_limit: 768m
+    environment: *ros_env
+    volumes:
+      - ${INTEGRATION_ROOT}:/opt/integration:ro
+      - ${PHASE1_RUN_ROOT}:/run/integration
+      - ${INTEGRATION_ROOT}/timesync_patch_runs/20261108/patch_install:/tmp/patch_install:ro
+    entrypoint: sleep
+    command: ['infinity']
+networks:
+  isolated:
+    name: gnss-p1-integrated-${P1_RUN_ID:?set P1_RUN_ID}
+    internal: true
