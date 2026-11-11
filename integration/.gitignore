@@ -1,5 +1,6 @@
 # Generated local runs. Historical contents stay on disk; no Git deletion.
 /phase1_runs/
+/linux_gpu_runs/
 /source_scope_audit/
 /ekf3_fusion_runs/
 /ekf3_readiness_runs/

@@ -43,6 +43,7 @@ def main():
     selected=set(paths)
     modules={p.stem:p for p in INTEGRATION.glob('*.py')}
     modules.update({p.stem:p for p in (INTEGRATION/'tests').glob('*.py')})
+    modules.update({p.stem:p for p in (INTEGRATION/'linux_gpu').glob('*.py')})
     secret_rules={
         'private-key':r'-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----',
         'github-token':r'\b(?:ghp_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{50,})\b',
@@ -70,7 +71,16 @@ def main():
                          [node.module] if isinstance(node,ast.ImportFrom) and node.module else [])
                 for module in imports:
                     first=module.split('.')[0]
-                    if first in modules:
+                    package_target='integration/'+module.replace('.','/')+'.py'
+                    if (ROOT/package_target).is_file():
+                        if package_target not in selected:errors.append(name+' imports excluded '+package_target)
+                    elif first in ('linux_gpu',):
+                        # Namespace package; imported child modules are checked by
+                        # their own selected source and the clean-tree test run.
+                        for alias in getattr(node,'names',[]):
+                            target='integration/'+module.replace('.','/')+'/'+alias.name+'.py'
+                            if (ROOT/target).is_file() and target not in selected:errors.append(name+' imports excluded '+target)
+                    elif first in modules:
                         target=str(modules[first].relative_to(ROOT))
                         if target not in selected:errors.append(name+' imports excluded '+target)
                     elif (p.parent/(first+'.py')).is_file():
@@ -108,7 +118,7 @@ def main():
                 external_imports=sorted(external),potential_secret_patterns=secrets,
                 largest_files=sorted((dict(path=k,bytes=v) for k,v in sizes.items()),key=lambda r:r['bytes'],reverse=True)[:5],
                 runtime_only=[dict(path=k,present_locally=(ROOT/k).is_file(),commit=False,reason=v) for k,v in RUNTIME_ONLY.items()],
-                runtime_bootstrap_status='HOLD: local image IDs/binary pin and overlay outputs need external provisioning; not a source fixture',
+                runtime_bootstrap_status='Camera-only Linux recipes included; Linux build/GPU NOT TESTED here. Full Phase1 still needs reviewed firmware pin, images and MAVROS overlay; see LINUX_GPU_HANDOFF.md',
                 staged_files=subprocess.check_output(['git','diff','--cached','--name-only'],cwd=ROOT,text=True).splitlines())
     print(json.dumps(result,indent=2))
     return 0 if not errors else 1

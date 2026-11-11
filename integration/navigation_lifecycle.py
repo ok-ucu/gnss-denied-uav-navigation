@@ -18,6 +18,7 @@ class NavigationLifecycle:
         self.durable=ResetSafety(path);self.join=EpochJoin();self.mapping=mapping
         self.clock=None;self.clock_host=None;self.last_output=None;self.reason='startup closed'
         self.last_transformed=None
+        self.ros_clock=None;self.ros_clock_host=None
 
     def block(self,reason):
         if self.owner.closed:return None
@@ -38,11 +39,53 @@ class NavigationLifecycle:
             try:self.mapping.check_clock(stamp_ns,host_ns if validation_host_ns is None else validation_host_ns)
             except ValueError as error:return self.block(str(error))
         self.clock,self.clock_host=stamp_ns,host_ns
+        mark('clock_watermark_applied',source_ns=stamp_ns,produced_host_ns=host_ns)
+
+    def observe_clock(self,stamp_ns,host_ns):
+        """Actual advancing ROS clock receipt, separate from sparse AP brackets.
+
+        Observing progress supplies liveness only. It creates no mapping anchor
+        and cannot approve an unbracketed acquisition timestamp.
+        """
+        if self.owner.closed:return
+        if type(stamp_ns) is not int or type(host_ns) is not int or min(stamp_ns,host_ns)<0:
+            return self.block('invalid observed clock')
+        if self.ros_clock is not None:
+            if stamp_ns==self.ros_clock:return  # duplicates cannot refresh age
+            if stamp_ns<self.ros_clock or host_ns<=self.ros_clock_host:
+                return self.block('observed clock jump/reset')
+        self.ros_clock,self.ros_clock_host=stamp_ns,host_ns
+
+    def clock_evidence(self,host_ns,purpose):
+        anchors=getattr(self.mapping,'anchors',[])
+        latest=anchors[-1]['host_ns'] if anchors else None
+        row=dict(purpose=purpose,decision_host_ns=host_ns,durable_blocked=self.durable.state['blocked'],
+             common_source_ns=self.clock,common_produced_host_ns=self.clock_host,
+             common_age_ns=None if self.clock_host is None else host_ns-self.clock_host,
+             ros_source_ns=self.ros_clock,ros_observed_host_ns=self.ros_clock_host,
+             ros_age_ns=None if self.ros_clock_host is None else host_ns-self.ros_clock_host,
+             latest_applied_produced_host_ns=latest,
+             latest_applied_age_ns=None if latest is None else host_ns-latest)
+        mark('clock_authorization',**row)
+        return row
+
+    def clock_fault(self,host_ns):
+        observed=self.clock_host if self.ros_clock_host is None else self.ros_clock_host
+        if observed is None or not 0<=host_ns-observed<=200_000_000:
+            return 'clock lost/stalled'
+        if self.ros_clock_host is not None:
+            # Both inputs must be fresh independently. A new ROS callback must
+            # not conceal a stale/delayed AP trace, and vice versa.
+            try:self.mapping.check_freshness(host_ns)
+            except ValueError as error:return str(error)
+        return None
 
     def watchdog(self,host_ns):
         if self.owner.closed:return False
-        if self.clock_host is None or not 0<=host_ns-self.clock_host<=200_000_000:
-            self.block('clock lost/stalled')
+        fault=self.clock_fault(host_ns)
+        if fault:
+            self.clock_evidence(host_ns,'watchdog_block')
+            self.block(fault)
         return not self.durable.state['blocked']
 
     def authorize(self,reference,initial_token,preflight,host_ns):
@@ -50,8 +93,8 @@ class NavigationLifecycle:
         self.block('explicit reference initialization pending')
         if preflight!='PASS' or not self.mapping.verified:
             raise ValueError('Require explicit new reference and verified preflight')
-        if (self.clock_host is None or type(host_ns) is not int
-                or not 0<=host_ns-self.clock_host<=200_000_000):
+        self.clock_evidence(host_ns,'initialize')
+        if self.clock is None or type(host_ns) is not int or self.clock_fault(host_ns):
             raise ValueError('Current clock required for explicit initialization')
         self.mapping.map(initial_token['stamp_ns'],host_ns,self.mapping.source_epoch)
         if not reference or reference==self.durable.state['fcu']:
@@ -67,16 +110,18 @@ class NavigationLifecycle:
     def pair(self,odom,token,host_ns,quality_ready,pose_type,speed_type):
         if self.owner.closed:return None
         try:
+            self.clock_evidence(host_ns,'pair')
             if self.durable.state['blocked'] or not self.watchdog(host_ns):
                 raise ValueError('durable latch or clock unavailable')
             if quality_ready is not True:raise ValueError('quality unavailable')
             ns=odom.header.stamp.sec*10**9+odom.header.stamp.nanosec
-            if not -5_000_000<=self.clock-ns<=200_000_000:raise ValueError('stale/future acquisition')
+            freshness_clock=self.clock if self.ros_clock is None else self.ros_clock
+            if not -5_000_000<=freshness_clock-ns<=200_000_000:raise ValueError('stale/future acquisition')
             self.join.tag(token);self.join.consume(ns)
             with stage('frame_conversion'):
                 transformed=bridge(odom)
             with stage('mavros_conversion'):
-                pose,speed,_=convert_pair(transformed,pose_type,speed_type,self.clock)
+                pose,speed,_=convert_pair(transformed,pose_type,speed_type,freshness_clock)
             with stage('clock_map'):
                 mapped=self.mapping.map(ns,host_ns,self.mapping.source_epoch)
             if self.last_output is not None and mapped['fcu_ns']<=self.last_output:
@@ -87,7 +132,7 @@ class NavigationLifecycle:
             for message in (pose,speed):
                 message.header.stamp.sec,message.header.stamp.nanosec=divmod(mapped['fcu_ns'],10**9)
             mapped.update(reference=self.durable.state['fcu'],producer=token['session'],epoch=0,approved_host_ns=host_ns,
-                          allowed_host_deadline_ns=host_ns+max(0,200_000_000-max(0,self.clock-ns)-mapped['uncertainty_ns']))
+                          allowed_host_deadline_ns=host_ns+max(0,200_000_000-max(0,freshness_clock-ns)-mapped['uncertainty_ns']))
             self.last_output=mapped['fcu_ns'];self.reason='validated pair'
             self.last_transformed=transformed
             return pose,speed,mapped

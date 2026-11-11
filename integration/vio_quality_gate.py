@@ -4,6 +4,7 @@ Thresholds are deployment checks, not guarantees of scene rigidity. The image
 audit checks spatially distributed track agreement, not semantic shadow identity.
 """
 import math
+from stage_timing import critical_stage
 
 
 def fresh(age, limit):
@@ -95,23 +96,26 @@ def distributed_flow(previous, gray, dt, height, fx, gyro, rotation, frontend_ve
         return {'ok': False, 'reason': 'no previous comparable frame'}
     h, w = gray.shape
     points = []
-    for y in range(3):
-        for x in range(4):
-            x0, x1 = x*w//4, (x+1)*w//4
-            y0, y1 = y*h//3, (y+1)*h//3
-            p = cv2.goodFeaturesToTrack(previous[y0:y1, x0:x1], 20, .01, 8)
-            if p is not None:
-                p += np.float32([x0, y0])
-                points.extend(p)
+    with critical_stage('audit_detection'):
+        for y in range(3):
+            for x in range(4):
+                x0, x1 = x*w//4, (x+1)*w//4
+                y0, y1 = y*h//3, (y+1)*h//3
+                p = cv2.goodFeaturesToTrack(previous[y0:y1, x0:x1], 20, .01, 8)
+                if p is not None:
+                    p += np.float32([x0, y0])
+                    points.extend(p)
     if len(points) < 15:
         return {'ok': False, 'reason': 'insufficient distributed features'}
     p0 = np.asarray(points, np.float32).reshape(-1, 1, 2)
     lk = dict(winSize=(21, 21), maxLevel=3,
               criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 30, .01))
-    p1, status, _ = cv2.calcOpticalFlowPyrLK(previous, gray, p0, None, **lk)
+    with critical_stage('audit_forward_lk'):
+        p1, status, _ = cv2.calcOpticalFlowPyrLK(previous, gray, p0, None, **lk)
     if p1 is None:
         return {'ok': False, 'reason': 'LK unavailable'}
-    back, status_back, _ = cv2.calcOpticalFlowPyrLK(gray, previous, p1, None, **lk)
+    with critical_stage('audit_backward_lk'):
+        back, status_back, _ = cv2.calcOpticalFlowPyrLK(gray, previous, p1, None, **lk)
     if back is None:
         return {'ok': False, 'reason': 'backward LK unavailable'}
     good = status.ravel().astype(bool) & status_back.ravel().astype(bool)
@@ -119,8 +123,9 @@ def distributed_flow(previous, gray, dt, height, fx, gyro, rotation, frontend_ve
     a, b = p0[good, 0], p1[good, 0]
     if len(a) < 15:
         return {'ok': False, 'reason': 'insufficient FB tracks'}
-    m, inliers = cv2.estimateAffinePartial2D(a, b, method=cv2.RANSAC,
-                                          ransacReprojThreshold=1.5)
+    with critical_stage('audit_affine'):
+        m, inliers = cv2.estimateAffinePartial2D(a, b, method=cv2.RANSAC,
+                                              ransacReprojThreshold=1.5)
     if m is None or inliers is None:
         return {'ok': False, 'reason': 'no distributed affine'}
     support = a[inliers.ravel().astype(bool)]

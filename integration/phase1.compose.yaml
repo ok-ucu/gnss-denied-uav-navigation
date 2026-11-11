@@ -4,7 +4,9 @@ services:
     image: sha256:6a5215efd7798818523c309eb220753f5755115ed493cd70ada8ae4ed0b61e6b
     container_name: gnss-p1-physics-${P1_RUN_ID:?set P1_RUN_ID}
     networks: [isolated]
-    cpus: 1.8
+    # Passive A/B: 1.8 CPU throttled 279/300 periods; 3 CPU reduced the
+    # measured JSON p99 from 50.59 to 17.43ms. Not a real-time guarantee.
+    cpus: 3.0
     mem_limit: 2g
     environment: &ros_env
       GZ_PARTITION: gnss-p1-integrated-${P1_RUN_ID:?set P1_RUN_ID}
@@ -39,15 +41,22 @@ services:
     network_mode: service:physics
     depends_on: [physics]
     # 0.6 CPU proved insufficient for camera + 1kHz ROS IMU/clock + diagnostics.
-    # Bound at one CPU; keep the shorter scheduling period.
+    # Source profiling measured long runqueue waits under the one-CPU quota.
+    # Two CPU leave headroom for the frame consumer and sensor executors.
+    # Keep the 10ms period and all freshness/availability limits unchanged.
     cpu_period: 10000
-    cpu_quota: 10000
+    cpu_quota: 20000
     mem_limit: 1g
     environment:
       <<: *ros_env
       OPENBLAS_NUM_THREADS: '1'
       OMP_NUM_THREADS: '1'
-    volumes: *mounts
+    volumes:
+      - ${INTEGRATION_ROOT}:/opt/integration:ro
+      - ${PHASE1_RUN_ROOT}:/run/integration
+      - ${VIO_ROOT}:/opt/vio:ro
+      # Opt-in diagnostic control storage; no permission/epoch files here.
+      - fault_control:/var/lib/phase1-control
     entrypoint: sleep
     command: ['infinity']
   transport:
@@ -55,18 +64,30 @@ services:
     container_name: gnss-p1-transport-${P1_RUN_ID:?set P1_RUN_ID}
     network_mode: service:physics
     depends_on: [physics, fcu]
-    # MAVROS + guard use a bounded half CPU with at most 5ms quota blackout.
+    # Measured .5 CPU caused repeated quota blackouts on the deadline path.
+    # One CPU reduced throttling; it is not a worst-case latency guarantee.
     cpu_period: 10000
-    cpu_quota: 5000
+    cpu_quota: 10000
     mem_limit: 768m
-    environment: *ros_env
+    environment:
+      <<: *ros_env
+      PHASE1_GUARD_STATE_DIR: /var/lib/phase1-guard
     volumes:
       - ${INTEGRATION_ROOT}:/opt/integration:ro
       - ${PHASE1_RUN_ROOT}:/run/integration
       - ${INTEGRATION_ROOT}/timesync_patch_runs/20261108/patch_install:/tmp/patch_install:ro
+      # Linux persistent storage avoids macOS bind-mount I/O on the interlock.
+      # Keep this volume across process/container restarts; never auto-delete it.
+      - guard_state:/var/lib/phase1-guard
+      - fault_control:/var/lib/phase1-control
     entrypoint: sleep
     command: ['infinity']
 networks:
   isolated:
     name: gnss-p1-integrated-${P1_RUN_ID:?set P1_RUN_ID}
     internal: true
+volumes:
+  guard_state:
+    name: gnss-p1-guard-${P1_RUN_ID:?set P1_RUN_ID}
+  fault_control:
+    name: gnss-p1-control-${P1_RUN_ID:?set P1_RUN_ID}

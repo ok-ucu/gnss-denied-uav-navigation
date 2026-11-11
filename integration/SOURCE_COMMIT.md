@@ -1,76 +1,46 @@
-# Proposed source-only staging scope
+# Linux GPU source handoff scope
 
-**Review only. Nothing has been staged, committed or pushed. Phase 1 HOLD;
-`execution_allowed=false`, `forwarding_enabled=false`.**
+**Phase1 HOLD; execution_allowed=false; forwarding_enabled=false.**
+[SOURCE_FILES.txt](SOURCE_FILES.txt) is the exact source-package allowlist.
+[Handoff](LINUX_GPU_HANDOFF.md) · [Dependencies](SOURCE_DEPENDENCIES.md).
 
-[SOURCE_FILES.txt](SOURCE_FILES.txt) is the exact allowlist. Do not replace it
-with a directory-wide add. The list includes both ignore files, this review,
-the allowlist itself and the source-audit tool. It deliberately excludes local
-historical reports whose evidence links would not exist in the source package.
+Include the existing safety/clock/transport and VIO timing changes since9298da8,
+their regression tests, Linux camera-only recipes/probes/preparation helpers,
+current status and concise measured evidence summary. The original native
+witness and sampling/analyzer source were promoted from ignored run folders;
+raw captures and compiled probes were not. Existing parser/trace patches,
+model/SDF inputs, regression fixtures, MAVROS overlay source and generated
+MAVLink protocol source remain tracked. Teammate VIO is an externally pinned,
+verified dependency, not copied into this commit.
 
-| Include | Why |
-|---|---|
-| Current capture-only launcher, Compose/MAVROS/profile configuration and runner | Reproduce the present owned integration path, subject to documented runtime prerequisites |
-| VIO/frame/velocity/covariance conversion, quality, clock, persistent epoch/egress guards | Actual integration implementation and safe failure handling |
-| Analysis modules imported by tests; all 17 unit-test files | Complete import closure; no tests discarded to make a package pass |
-| Parser patch, trace patch, actual C++ parser tests and build/mount helpers | Unique source currently stored inside experiment folders |
-| Four model/world/sensor SDF/config inputs and three small regression fixtures | Required paths for launcher and existing tests, not a raw recording dump |
-| Actual MAVROS overlay package, signed-offset diff and build helper | Rebuild the separate plugin without vendoring full MAVROS |
-| One generated MAVLink v2 Python dialect | Current runtime dependency at an exact path, 2.26 MB of protocol **source**; generated logs are excluded |
-| Selected recorded artifact SHA manifest | Current launcher checks selected source/artifact hashes through this manifest; binaries and other historical data remain excluded |
+Exclude all raw run folders, CSV/JSONL/PCAP/BIN/TLOG/perf captures, PNG/PPM,
+firmware/shared libraries, build/install trees, full upstream repositories and
+all teammate directories. Unselected legacy integration tools/docs remain on
+disk untracked, not deleted; they are unnecessary to this camera-only workflow.
+`linux_gpu_runs/` joins the precise generated-directory exclusions. No global
+extension rule hides required source/fixtures. Root .gitignore is unchanged.
 
-Full per-file names are in the linked allowlist; exact current sizes and ignored
-status are produced by [audit_source_scope.py](audit_source_scope.py). No selected
-file is a BIN/TLOG, PNG, frame recording, archive, compiler object or full upstream
-checkout. See [dependencies](SOURCE_DEPENDENCIES.md) for third-party pins,
-generated-source provenance and fresh-machine runtime limitations.
+The handoff's full source set is closure-tested in a clean temporary tree with
+only the four pinned external VIO files mounted read-only. No historical run
+folder/image/binary is provided to those tests. New Linux builds/hardware tests
+are NOT TESTED; preparation, Compose resolution and source/test validation do
+not claim runtime or continuous normal PASS. See validation result below.
 
-## Exclude from this commit, preserve locally
+Staging uses an explicit per-file list of changed/new allowlisted paths; never
+`git add .`, `git add -A` or a directory add. Before commit check cached names,
+sizes, diff --check, import/path closure, links, secrets and safety state. Existing
+tracked protocol source (2.26MB) is not a new capture/binary. No force push or
+other branch changes are authorized.
 
-- All raw `phase1_runs/`, camera/VIO/IMU, EKF/fcu, navigation and other run folders.
-- `isolated_blockers/20261109_a/work/` and `state/`; almost all `evidence/`.
-- Full `ardupilot_gazebo/source/`, its build directory, full MAVROS archive,
-  generated `patch_install/`, colcon/waf outputs and local Docker artifacts.
-- Private inventories, absolute-host-path `compose.env`, PID files, state stores,
-  raw frames, images, CSV/JSONL, BIN/TLOG/PCAP and timing captures.
-- Historical code snapshots and superseded duplicate build/source copies.
-- Unselected root diagnostic/flight tools and historical Markdown are **source**,
-  not garbage: they remain locally visible/untracked for a later separate review.
-  This allowlist is the minimum current integration/test package, not a request
-  to delete or globally ignore other unique source.
-- `vio/`, `gazebo/`, `camera/`, `sitl-stand/`, `calibration/`, `dataset/` and the
-  unrelated root flight script are outside scope. No teammate paths are selected.
+## Validation result
 
-Ignore rules are rooted directory paths with exact exceptions for required
-source/fixtures. Global `*.csv`, `*.jsonl`, `*.bin` and generic build-folder rules
-were removed from the previously uncommitted root additions; they could hide
-legitimate teammate/test inputs. Existing cache/environment/credential policy
-remains. No raw file is deleted or moved, and no historical evidence is edited.
-
-## Read-only review commands
-
-```bash
-python3 -B integration/audit_source_scope.py
-git status --short
-git diff --check
-git diff --cached --name-only
-```
-
-The audit checks sorted/unique/existing paths, ignore-rule visibility, Python
-import closure and AST, XML, package-local Markdown links, host-specific path
-patterns and common secret signatures. Pattern scanning is not a security
-certification. It reports external generated runtime dependencies separately;
-their presence on this machine does not make a fresh clone turnkey reproducible.
-
-**Manual command only after explicit review/approval; not executed here:**
-
-```bash
-git add --pathspec-from-file=integration/SOURCE_FILES.txt
-git diff --cached --check
-git diff --cached --stat
-git diff --cached --name-only
-```
-
-Compare the final command's output against the allowlist before any commit.
-Do not use force-add to override a failed ignore check. No commit or push command
-is part of this preparation.
+Clean-tree ARM64 runtime: **137/137 offline tests PASS, no skips**; only the
+selected source files and four pinned external VIO files were available.
+Passive native witness compiled against the installed ABI without simulation.
+Python AST70files, shell syntax, both exact parser patches applied to committed
+upstream fixtures, DRI/NVIDIA Compose resolution, primary capture Compose config,
+Markdown links, secret patterns and source/COPY dependency closure PASS.
+Historical evidence was absent from the clean tree. Final staged checks repeat
+link/scope/size/secret and diff validation after documentation is finalized.
+New Linux image builds, hardware GPU use, camera-only live run and full normal
+remain NOT TESTED for this handoff. Existing normal FAIL is not relabelled.

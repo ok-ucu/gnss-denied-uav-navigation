@@ -29,6 +29,30 @@ def fcu_allowed(kind):
     return kind=='TIMESYNC'
 
 
+def heartbeat_fresh(last_fcu_ns,current_fcu_ns):
+    """Three nominal 1Hz FCU heartbeat periods, in FCU simulation time.
+
+    At RTF < 1, three host seconds need not contain even one FCU second.
+    Applied-clock and ROS watchdogs still enforce their HOST deadlines; this
+    additional availability check never extends a vision permission.
+    """
+    return (type(last_fcu_ns) is int and type(current_fcu_ns) is int
+            and 0<=current_fcu_ns-last_fcu_ns<=3_000_000_000)
+
+
+def ready_datagrams(sock,limit=64):
+    """Drain a bounded ready batch before ROS callbacks/file work can intervene.
+
+    Each timestamp is a userspace receive event, NOT NIC/kernel arrival time.
+    Remaining datagrams wait for the next iteration and retain their original
+    permission deadlines. No packet is retimestamped or granted extra time.
+    """
+    for _ in range(limit):
+        try:data,_=sock.recvfrom(65535)
+        except BlockingIOError:return
+        yield data,time.monotonic_ns()
+
+
 def common_watermark(anchors,ros_clock_ns):
     """Newest APPLIED anchor also observed by ROS, not necessarily newest AP anchor."""
     if ros_clock_ns is None:return None
@@ -54,8 +78,10 @@ def main():
     digest=hashlib.sha256(binary.read_bytes()).hexdigest()
     identity=json.loads((a.run/'artifacts/run_identity.json').read_text())
     mapping=AppliedClockMapping(identity['clock_epoch'],digest)
-    gate=NavigationLifecycle(a.run/'state/capture_reference.json',mapping)
-    egress=VisionEgress(a.run/'state/capture_reference.json')
+    state_directory=Path(os.environ.get('PHASE1_GUARD_STATE_DIR',str(a.run/'state')))
+    state_path=state_directory/'capture_reference.json'
+    gate=NavigationLifecycle(state_path,mapping)
+    egress=VisionEgress(state_path)
     # A used reference means restart: never generate another automatically.
     initial_allowed=not gate.durable.state['used_fcu'] or a.initialize_capture_reference is not None
     spec=importlib.util.spec_from_file_location('wire','/opt/integration/mavros_live_runs/20261108/mavlink_v20.py')
@@ -75,6 +101,9 @@ def main():
     speeds=node.create_publisher(TwistWithCovarianceStamped,'/mavros/vision_speed/speed_twist_cov',100)
     converted=node.create_publisher(Odometry,'/integration/phase1/odometry_enu',100)
     logs={name:(out/(name+'.jsonl')).open('x') for name in ('events','wire','mapping','fcuwitness','odom','timesync','params')}
+    (out/'state_location.json').write_text(json.dumps(dict(path=str(state_path),
+        persistence='Compose run-scoped named volume when PHASE1_GUARD_STATE_DIR is set; otherwise legacy run state',
+        asynchronous_authorization=False))+'\n')
     raw=(out/'vision.mavlink').open('xb');tcpraw=(out/'fcu_tcp.bin').open('xb')
     audit_writer=AsyncAudit(dict(logs,raw=raw,tcpraw=tcpraw))
     def log(name,**row):
@@ -90,12 +119,18 @@ def main():
     def stop(*_):running[0]=False
     signal.signal(signal.SIGTERM,stop);signal.signal(signal.SIGINT,stop)
     def on_clock(msg):
+        received=time.monotonic_ns()
         ns=msg.clock.sec*10**9+msg.clock.nanosec
+        mark('transport_clock_callback',source_ns=ns,callback_host_ns=received)
         if clock[0] is not None and ns<clock[0]:block('ROS simulation clock reset')
-        if clock[0] is None or ns>clock[0]:clock[:]=[ns,time.monotonic_ns()]
+        if clock[0] is None or ns>clock[0]:
+            clock[:]=[ns,received]
+            gate.observe_clock(ns,received)
     def on_odom(msg):
         ns=msg.header.stamp.sec*10**9+msg.header.stamp.nanosec
         callback_entry=time.monotonic_ns()
+        mark('odom_arrival_age',source_ns=ns,callback_entry_host_ns=callback_entry,
+             ros_clock_ns=clock[0],age_sim_ns=None if clock[0] is None else clock[0]-ns)
         last_odom[0]=callback_entry
         try:
             with sample(ns),stage('callback_validation'):
@@ -134,6 +169,7 @@ def main():
     dec_tcp.robust_parsing=dec_udp.robust_parsing=True
     enc=wire.MAVLink(None,srcSystem=255,srcComponent=191)
     sent={};witness=[];offset=0;last_ping=0;watermark=None;started=time.monotonic()
+    last_heartbeat=None
     parameter_names=['GPS_TYPE','GPS_TYPE2','AHRS_EKF_TYPE','EK3_ENABLE','EK3_SRC_OPTIONS','EK3_SRC1_POSXY',
         'EK3_SRC1_VELXY','EK3_SRC1_POSZ','EK3_SRC1_VELZ','EK3_SRC1_YAW','VISO_TYPE','VISO_DELAY_MS',
         'VISO_POS_M_NSE','VISO_VEL_M_NSE','VISO_YAW_M_NSE','SERIAL0_PROTOCOL']
@@ -142,17 +178,24 @@ def main():
     trace=a.run/'evidence/applied.csv'
     def refresh():
         nonlocal offset,watermark
-        if trace.exists():
-            with trace.open() as f:
-                f.seek(offset)
-                while True:
-                    start=f.tell();line=f.readline()
-                    if not line or not line.endswith('\n'):offset=start;break
-                    offset=f.tell();v=line.strip().split(',')
-                    try:
-                        mapping.feed(round(float(v[0])*1e9),int(v[4])*1000,int(v[6]),parsed_no_time_sync=int(v[1]),use_time_sync=int(v[2]))
-                    except ValueError as exc:
-                        block(str(exc));continue
+        with stage('applied_trace_read'):
+            if trace.exists():
+                with trace.open() as f:
+                    f.seek(offset)
+                    while True:
+                        start=f.tell();line=f.readline()
+                        if not line or not line.endswith('\n'):offset=start;break
+                        received=time.monotonic_ns()
+                        offset=f.tell();v=line.strip().split(',')
+                        try:
+                            source_ns=round(float(v[0])*1e9);produced=int(v[6])
+                            mark('clock_anchor_received',source_ns=source_ns,produced_host_ns=produced,received_host_ns=received)
+                            if produced>received:raise ValueError('future applied production event')
+                            with stage('clock_anchor_validate'):
+                                mapping.feed(source_ns,int(v[4])*1000,produced,parsed_no_time_sync=int(v[1]),use_time_sync=int(v[2]))
+                            mark('clock_anchor_validated',source_ns=source_ns,produced_host_ns=produced)
+                        except ValueError as exc:
+                            block(str(exc));continue
         for row in list(witness):
             try:
                 if mapping.crosscheck(row['fcu_ns'],row['sent_ns'],row['received_ns']):
@@ -163,12 +206,18 @@ def main():
         if mapping.anchors and clock[0] is not None:
             last=common_watermark(mapping.anchors,clock[0])
             if last is not None and last['source_ns']!=watermark:
+                mark('common_clock_watermark',source_ns=last['source_ns'],
+                     applied_host_ns=last['host_ns'],ros_clock_ns=clock[0],
+                     ros_callback_host_ns=clock[1],latest_applied_ns=mapping.anchors[-1]['source_ns'])
                 gate.clock_tick(last['source_ns'],last['host_ns'],validation_host_ns=time.monotonic_ns());watermark=last['source_ns']
 
     def drain():
         nonlocal initial_allowed
         now=time.monotonic_ns()
         if not mapping.verified or clock[0] is None:return
+        if not heartbeat_fresh(last_heartbeat,mapping.anchors[-1]['target_ns']):
+            if not initial_allowed:block('FCU heartbeat missing/stale')
+            return
         for ns in sorted(list(pending)):
             now=time.monotonic_ns()
             if ns not in tokens:continue
@@ -190,9 +239,11 @@ def main():
                     gate.authorize(reference,token,'PASS',now)
                     egress.authorize(reference,token['session'],'PASS')
                     initial_allowed=False
-                    log('events',event='diagnostic_reference_initialized',reference=reference,
+                    log('events',event='diagnostic_reference_initialized',reference=reference,initial_acquisition_ns=ns,
                         authorization_scope='isolated capture contract only; NOT full FCU preflight',forwarding_enabled=False)
                     continue
+                mark('pair_input_age',source_ns=ns,decision_host_ns=now,ros_clock_ns=gate.ros_clock,
+                     age_sim_ns=None if gate.ros_clock is None else gate.ros_clock-ns)
                 with sample(ns),stage('lifecycle_pair'):
                     pair=gate.pair(msg,token,now,True,PoseWithCovarianceStamped,TwistWithCovarianceStamped)
                 if pair is None:
@@ -216,6 +267,10 @@ def main():
             except (ValueError,KeyError,FileNotFoundError) as exc:block(str(exc))
     try:
         while running[0] and time.monotonic()-started<a.duration:
+            # Consume actual clock receipts and AP evidence before any new
+            # authorization/wire decision, rather than after the wire drain.
+            rclpy.spin_once(node,timeout_sec=.002)
+            refresh()
             now=time.monotonic_ns()
             if now-last_ping>100_000_000:
                 request=wire.MAVLink_timesync_message(0,now)
@@ -240,6 +295,10 @@ def main():
                     kind=msg.get_type()
                     if kind=='BAD_DATA':continue
                     if kind=='HEARTBEAT':
+                        # The latest already-applied label is a conservative
+                        # lower timestamp witness, not a forged packet stamp.
+                        if mapping.anchors:last_heartbeat=mapping.anchors[-1]['target_ns']
+                        mark('heartbeat_observed',last_applied_fcu_ns=last_heartbeat)
                         stats['heartbeat']+=1
                         if msg.base_mode&128:stats['armed_samples']+=1;raise RuntimeError('Unexpected ARMED FCU')
                     if kind=='TIMESYNC' and msg.tc1>0 and msg.ts1 in sent:
@@ -252,10 +311,7 @@ def main():
                         system_pending=None
                     if kind=='PARAM_VALUE':log('params',message=msg.to_dict())
                     udp.sendto(bytes(msg.get_msgbuf()),('127.0.0.1',14891))
-            try:data,_=udp.recvfrom(65535)
-            except BlockingIOError:data=b''
-            if data:
-                wire_arrival=time.monotonic_ns()
+            for data,wire_arrival in ready_datagrams(udp):
                 for msg in dec_udp.parse_buffer(data) or []:
                     kind=msg.get_type()
                     if kind=='BAD_DATA':continue
@@ -268,6 +324,9 @@ def main():
                             validate_covariance(expand_upper_triangle(covariance) if kind=='VISION_POSITION_ESTIMATE' else covariance,
                                                 6 if kind=='VISION_POSITION_ESTIMATE' else 3)
                             usec=msg.usec if kind=='VISION_POSITION_ESTIMATE' else msg.usec
+                            gate.clock_evidence(time.monotonic_ns(),'wire')
+                            if not gate.watchdog(time.monotonic_ns()):
+                                raise ValueError(gate.reason)
                             with stage('wire_guard',usec=usec,kind=kind):
                                 valid=egress.check(kind,usec,msg.reset_counter,time.monotonic_ns(),clock=time.monotonic_ns)
                             wire_checked=time.monotonic_ns()
@@ -280,21 +339,26 @@ def main():
                         except (ValueError,AttributeError) as exc:reason=str(exc);block(reason);valid=False
                         wire_checked=time.monotonic_ns()
                         ex=expected.get(usec)
+                        if valid and not gate.watchdog(wire_checked):
+                            reason=gate.reason;block(reason);valid=False
+                        clock_at_boundary=gate.clock_evidence(time.monotonic_ns(),'wire_final')
+                        wire_checked=time.monotonic_ns()
                         if valid and ex and wire_checked>ex['meta']['allowed_host_deadline_ns']:
                             reason='permission expired at final wire boundary';block(reason);valid=False
                         stats['validated_capture_packets']+=int(valid)
                         log('wire',message=msg.to_dict(),valid_capture=valid,reason=reason,
                             arrival_host_ns=wire_arrival,checked_host_ns=wire_checked,
                             deadline_host_ns=None if expected.get(usec) is None else expected[usec]['meta']['allowed_host_deadline_ns'],
+                            clock=clock_at_boundary,
                             forwarded_to_fcu=False,global_forwarding_enabled=False)
                         if valid and ex:
                             ex['valid_seen'].add(kind)
                             if len(ex['valid_seen'])==2:
                                 with stage('diagnostic_ros_publish',usec=usec):converted.publish(ex['diagnostic'])
-            rclpy.spin_once(node,timeout_sec=.002)
-            refresh();drain()
+            drain()
             if not initial_allowed and not gate.durable.state['blocked']:
-                if not poses.get_subscription_count() or not speeds.get_subscription_count():block('MAVROS disconnected')
+                if not heartbeat_fresh(last_heartbeat,mapping.anchors[-1]['target_ns']):block('FCU heartbeat missing/stale')
+                elif not poses.get_subscription_count() or not speeds.get_subscription_count():block('MAVROS disconnected')
                 elif last_odom[0] is not None and time.monotonic_ns()-last_odom[0]>500_000_000:
                     block('VIO availability watchdog')
                 elif a.mavros_pid_file is not None:
@@ -306,6 +370,11 @@ def main():
                 elif not gate.watchdog(time.monotonic_ns()):egress.block()
     finally:
         gate.close();egress.close();tcp.close();udp.close()
+        # Evidence copy only. The named-volume originals remain authoritative
+        # across restart and are never restored from this diagnostic snapshot.
+        with (out/'closed_guard_state.json').open('x') as f:
+            json.dump({name:json.loads(path.read_text()) for name,path in
+                       (('upstream',gate.durable.path),('egress',egress.authorization.path))},f,indent=2)
         node.destroy_node();rclpy.shutdown()
         audit_writer.close();raw.close();tcpraw.close()
         for f in logs.values():f.close()

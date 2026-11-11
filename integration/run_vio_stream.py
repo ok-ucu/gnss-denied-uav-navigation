@@ -12,7 +12,9 @@ import time
 import signal
 import hashlib
 import uuid
-from stage_timing import activate,stage,sample,mark,FaultFile
+import os
+import threading
+from stage_timing import activate,stage,sample,mark,FaultFile,critical_stage
 
 
 def recovery_deadline(stamp):
@@ -95,6 +97,7 @@ def main():
                   delivery_budget_note='20ms simulation-age reserve at publication, not a guaranteed DDS deadline',
                   angular_covariance_policy='Measured aligned IMU angular velocity FRD, diagonal variance100(rad/s)^2 is conservative uncalibrated compatibility policy, not sensor noise calibration',
                   limitations='GT height, known sensor initial yaw=90deg/Rx(pi); distributed audit is not semantic shadow detection')
+    config.update(profile_pid=os.getpid(),frame_thread_native_id=threading.get_native_id())
     config['source_sha256'] = {str(path.name): hashlib.sha256(path.read_bytes()).hexdigest()
                                for path in [Path(__file__), Path(__file__).with_name('vio_quality_gate.py'),
                                             Path(__file__).with_name('vio_sensor_capture.py')]
@@ -107,8 +110,9 @@ def main():
     (a.output_dir/'configuration.json').write_text(json.dumps(config, indent=2)+'\n')
 
     def write(row):
-        log.write(json.dumps(row, allow_nan=False)+'\n')
-        log.flush()
+        with critical_stage('source_diagnostic_write'):
+            log.write(json.dumps(row, allow_nan=False)+'\n')
+            log.flush()
 
     def fault():
         if a.fault_file is not None:
@@ -186,7 +190,7 @@ def main():
             if state[key] is not None and wall-state[key] > .5:
                 block(reason, state['frame_stamp'], reset=(key == 'last_imu_wall'))
 
-    def handle(frame, buffers):
+    def process_frame(frame, buffers):
         nonlocal ekf, frontend
         gray, t, _, source_age = frame
         wall = time.monotonic()
@@ -205,9 +209,10 @@ def main():
             if state['previous_t'] is not None and t <= state['previous_t']:
                 block('camera timestamp reset', t, reset=True)
                 raise ValueError('camera timestamp reset')
-            imu = buffers['imu'].snapshot()
-            poses = buffers['poses'].snapshot()
-            clocks = buffers['clocks'].snapshot()
+            with critical_stage('source_snapshot'):
+                imu = buffers['imu'].snapshot()
+                poses = buffers['poses'].snapshot()
+                clocks = buffers['clocks'].snapshot()
             if any(buf.dropped for buf in buffers.values()):
                 raise ValueError('buffer overflow')
             if injected == 'imu_loss':
@@ -215,6 +220,8 @@ def main():
                 raise ValueError('injected IMU input loss')
             if not imu or not poses or not clocks or source_age is None:
                 raise ValueError('sensor/clock warmup')
+            if a.profile:
+                row['queue_depths']=dict(imu=len(imu),poses=len(poses),clocks=len(clocks),imu_consumer_index=state['imu_index'])
             clock = clocks[-1]
             if not fresh(clock['t']-t, .2) or wall-clock['arrival_monotonic_s'] > .5:
                 raise ValueError('stale/uncomparable clock')
@@ -246,33 +253,40 @@ def main():
                 state['last_imu'] = imu[state['imu_index']]
                 state['filter_t'] = state['last_imu']['t']
                 state['imu_index'] += 1
+            imu_start_index=state['imu_index']
+            imu_process_begin=time.monotonic()
             gyro_samples = []
             imu_begin=time.monotonic()
             max_gap = .001
-            while state['imu_index'] < len(imu) and imu[state['imu_index']]['t'] <= t:
-                m = imu[state['imu_index']]
+            with critical_stage('source_imu_processing'):
+                while state['imu_index'] < len(imu) and imu[state['imu_index']]['t'] <= t:
+                    m = imu[state['imu_index']]
+                    last = state['last_imu']
+                    gap = m['t']-last['t']
+                    max_gap = max(max_gap, gap)
+                    if not 0 < gap <= .02 or not np.isfinite(m['f']+m['gyro']).all():
+                        block('IMU gap/reset/nonfinite', t, reset=True)
+                        raise ValueError('IMU gap/reset/nonfinite')
+                    dt = m['t']-state['filter_t']
+                    if dt > 0:
+                        ekf.predict(np.asarray(last['f']), rotation(last['q']), dt)
+                        gyro_samples.append((dt, np.asarray(last['gyro'])))
+                    state.update(last_imu=m, filter_t=m['t'], imu_index=state['imu_index']+1)
                 last = state['last_imu']
-                gap = m['t']-last['t']
-                max_gap = max(max_gap, gap)
-                if not 0 < gap <= .02 or not np.isfinite(m['f']+m['gyro']).all():
-                    block('IMU gap/reset/nonfinite', t, reset=True)
-                    raise ValueError('IMU gap/reset/nonfinite')
-                dt = m['t']-state['filter_t']
+                imu_age = t-last['t']
+                if not 0 <= imu_age <= .005:
+                    raise ValueError('IMU watermark/alignment')
+                r = rotation(last['q'])  # Verified spawn ENU yaw90 + sensor Rx(pi) -> NED identity.
+                dt = t-state['filter_t']
                 if dt > 0:
-                    ekf.predict(np.asarray(last['f']), rotation(last['q']), dt)
+                    ekf.predict(np.asarray(last['f']), r, dt)
                     gyro_samples.append((dt, np.asarray(last['gyro'])))
-                state.update(last_imu=m, filter_t=m['t'], imu_index=state['imu_index']+1)
-            last = state['last_imu']
-            imu_age = t-last['t']
-            if not 0 <= imu_age <= .005:
-                raise ValueError('IMU watermark/alignment')
-            r = rotation(last['q'])  # Verified spawn ENU yaw90 + sensor Rx(pi) -> NED identity.
-            dt = t-state['filter_t']
-            if dt > 0:
-                ekf.predict(np.asarray(last['f']), r, dt)
-                gyro_samples.append((dt, np.asarray(last['gyro'])))
-            state['filter_t'] = t
-            row['imu_processing_wall_s']=time.monotonic()-imu_begin
+                state['filter_t'] = t
+                row['imu_processing_wall_s']=time.monotonic()-imu_begin
+            if a.profile:
+                processed=imu[imu_start_index:state['imu_index']]
+                row['imu_batch']=dict(count=len(processed),pending=len(imu)-state['imu_index'],
+                    max_receipt_wait_s=max((imu_process_begin-v['arrival_monotonic_s'] for v in processed),default=None))
             gyro = sum(dt*g for dt, g in gyro_samples)/sum(dt for dt, g in gyro_samples) if gyro_samples else np.asarray(last['gyro'])
             lever = np.asarray(gimbal['p'])+rg@np.asarray(pitch['p'])
             if calibrated_lever is None:
@@ -303,14 +317,16 @@ def main():
                 previous = None
                 block('camera gap', t)
             flow_begin=time.monotonic()
-            result = frontend.process(gray, t, camera_height, gyro, r)
+            with critical_stage('source_frontend'):
+                result = frontend.process(gray, t, camera_height, gyro, r)
             row['frontend_wall_s']=time.monotonic()-flow_begin
             state.update(previous=gray, previous_t=t)
             audit = {'ok': False, 'reason': 'frontend unavailable'}
             accepted = False
             if result is not None:
                 audit_begin=time.monotonic()
-                audit = distributed_flow(previous, gray, t-previous_t, camera_height, 205.4696, gyro, r, result.v_xy)
+                with critical_stage('source_spatial_audit'):
+                    audit = distributed_flow(previous, gray, t-previous_t, camera_height, 205.4696, gyro, r, result.v_xy)
                 row['audit_wall_s']=time.monotonic()-audit_begin
                 velocity = camera_to_body_xy(result.v_xy, r, gyro, lever_frd)
                 row.update(flow_xy=velocity.tolist(), flow_camera_xy=result.v_xy.tolist())
@@ -322,12 +338,13 @@ def main():
             covariance = ekf.P.copy()
             if injected == 'bad_covariance':
                 covariance[0, 0] = -1  # Gate injection only, estimator state remains unaltered.
-            ready = gate.assess(t, wall, imu_age=imu_age, frame_age=source_age,
-                                clock_age=clock['t']-t, max_imu_gap=max_gap,
-                                inliers=result.n_inliers if result is not None else 0,
-                                contrast=contrast, covariance=covariance,
-                                state_finite=bool(np.isfinite(ekf.x).all()),
-                                audit_ok=audit['ok'], ekf_ok=bool(accepted and ekf_ready(ekf) and state['reset_after'] is None), frame_gap=frame_gap)
+            with critical_stage('source_quality_checks'):
+                ready = gate.assess(t, wall, imu_age=imu_age, frame_age=source_age,
+                                    clock_age=clock['t']-t, max_imu_gap=max_gap,
+                                    inliers=result.n_inliers if result is not None else 0,
+                                    contrast=contrast, covariance=covariance,
+                                    state_finite=bool(np.isfinite(ekf.x).all()),
+                                    audit_ok=audit['ok'], ekf_ok=bool(accepted and ekf_ready(ekf) and state['reset_after'] is None), frame_gap=frame_gap)
             row.update(state=ekf.x.tolist(), covariance=ekf.P.tolist(), audit=audit,
                        contrast=contrast, flow_accepted=bool(accepted), ekf_internal_resets=ekf.n_resets, imu_age=imu_age,
                        source_age=source_age, clock_age=clock['t']-t,
@@ -346,6 +363,7 @@ def main():
                 odom_matches=output_node.odom_publisher.get_subscription_count()
                 epoch_matches=epoch_pub.get_subscription_count()
                 row.update(odom_subscribers=odom_matches,epoch_subscribers=epoch_matches)
+                if a.profile:row['publication_check_age_sim_s']=current_clock['t']-t
                 if odom_matches<a.min_odom_subscribers or epoch_matches<a.min_epoch_subscribers:
                     block('waiting for downstream DDS discovery',t);row['ready']=False
                 elif not fresh(current_clock['t']-t, .18) or current_wall-current_clock['arrival_monotonic_s'] > .5:
@@ -354,13 +372,19 @@ def main():
                     row['error'] = 'stale at publication'
                 else:
                     output_node.t = t
-                    odom.publish(r, ekf.x[:3], ekf.x[3:6], ekf.P[:3, :3], ekf.P[3:6, 3:6], 3e-4)
+                    with critical_stage('source_odom_publish'):
+                        odom.publish(r, ekf.x[:3], ekf.x[3:6], ekf.P[:3, :3], ekf.P[3:6, 3:6], 3e-4)
                     row['published'] = True
+                    if a.profile:row['post_enqueue_age_sim_s']=buffers['clocks'].latest()['t']-t
             row['processing_s'] = time.monotonic()-wall
         except (ValueError, KeyError) as exc:
             block(str(exc), t)
             row['error'] = str(exc)
         write(row)
+
+    def handle(frame,buffers):
+        with sample(round(frame[1]*1e9)),critical_stage('source_frame'):
+            return process_frame(frame,buffers)
 
     camera = '/world/iris_runway/model/iris_with_gimbal/model/gimbal/link/pitch_link/sensor/camera/image'
     imu_topic = '/world/iris_runway/model/iris_with_gimbal/model/iris_with_standoffs/link/imu_link/sensor/imu_sensor/imu'

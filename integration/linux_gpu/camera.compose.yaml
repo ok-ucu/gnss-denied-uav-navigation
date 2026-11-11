@@ -1,0 +1,37 @@
+name: gnss-gpu-${GPU_RUN_ID:?set GPU_RUN_ID}
+services:
+  physics:
+    image: ${GPU_CAMERA_IMAGE:?build camera image}
+    container_name: gnss-gpu-physics-${GPU_RUN_ID}
+    networks: [isolated]
+    cpus: 3.0
+    mem_limit: 2g
+    environment:
+      GZ_PARTITION: gnss-gpu-${GPU_RUN_ID}
+      QT_QPA_PLATFORM: offscreen
+      LIBGL_ALWAYS_SOFTWARE: ${GPU_SOFTWARE:?set 0 or 1}
+      GZ_SIM_SYSTEM_PLUGIN_PATH: /opt/ardupilot_gazebo/build
+      GZ_SIM_RESOURCE_PATH: /run/integration/models:/opt/ardupilot_gazebo/models:/opt/ardupilot_gazebo/worlds
+    volumes: &mounts
+      - ${GPU_INTEGRATION_ROOT:?set root}:/opt/integration:ro
+      - ${GPU_RUN_ROOT:?set new run}:/run/integration
+    entrypoint: [bash, -lc]
+    command:
+      - 'source /opt/ros/jazzy/setup.bash; export LD_PRELOAD=/opt/phase1/native_parts_render.so; export CAMERA_TRACE_PREFIX=/tmp/phase1_camera_boundary; exec gz sim -s -r --headless-rendering -v 3 /run/integration/models/world.sdf'
+  fcu:
+    image: ${GPU_FCU_IMAGE:?build SITL image}
+    container_name: gnss-gpu-fcu-${GPU_RUN_ID}
+    network_mode: service:physics
+    depends_on: [physics]
+    cpus: 0.2
+    mem_limit: 512m
+    volumes: *mounts
+    environment:
+      GNSS_EXPERIMENT_TRACE: /run/integration/evidence/applied.csv
+    entrypoint: [bash, -lc]
+    command:
+      - 'cd /run/integration/state/fcu; exec /opt/phase1/arducopter --model JSON --speedup 1 --home=-35.363261,149.165230,584,0 --defaults /home/docker/ardupilot/Tools/autotest/default_params/copter.parm,/home/docker/ardupilot/Tools/autotest/default_params/gazebo-iris.parm,/run/integration/artifacts/camera.parm --serial0 tcp:5760 --sim-port-out 9002'
+networks:
+  isolated:
+    name: gnss-gpu-${GPU_RUN_ID}
+    internal: true

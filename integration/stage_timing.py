@@ -1,7 +1,8 @@
 """Opt-in in-memory stage profiling; no diagnostic disk writes on the hot path.
 
-All *_host_ns are Linux CLOCK_MONOTONIC, *_cpu_ns process CPU time. Acquisition
-labels remain simulation nanoseconds. The two domains are never subtracted.
+All *_host_ns are Linux CLOCK_MONOTONIC. cpu_ns/process_cpu_ns measure process
+CPU; thread_cpu_ns measures the calling thread. Acquisition labels remain
+simulation nanoseconds. The two time domains are never subtracted.
 """
 from collections import deque
 from contextlib import contextmanager
@@ -11,6 +12,7 @@ from pathlib import Path
 import threading
 import time
 import queue
+import resource
 
 _recorder = None
 _sample = ContextVar('acquisition_ns', default=None)
@@ -85,6 +87,112 @@ def mark(name, **metadata):
         _recorder.add(dict(stage=name,acquisition_ns=_sample.get(),host_ns=time.monotonic_ns(),**metadata))
 
 
+def thread_schedule():
+    """Actual Linux thread counters, or unavailable; never substitute zeros."""
+    try:
+        return tuple(map(int,Path('/proc/self/task/'+str(threading.get_native_id())+'/schedstat').read_text().split()))
+    except (OSError,ValueError):
+        return None
+
+
+@contextmanager
+def critical_stage(name, **metadata):
+    """Opt-in CPU/wall profiling for coarse source stages, not every IMU sample.
+
+    Scheduler reads bracket the timed work and have their own overhead. Runqueue
+    counters are not futex/IO wait; wall minus thread CPU alone cannot name a wait.
+    Existing stage() process-CPU fields/transport instrumentation stay unchanged.
+    """
+    recorder=_recorder
+    detail={}
+    if recorder is None:
+        yield detail
+        return
+    detail['profiled']=True
+    overhead=time.monotonic_ns();schedule=thread_schedule()
+    usage=resource.getrusage(resource.RUSAGE_THREAD) if hasattr(resource,'RUSAGE_THREAD') else None
+    start=time.monotonic_ns();cpu=time.thread_time_ns();process=time.process_time_ns()
+    try:
+        yield detail
+    finally:
+        end=time.monotonic_ns();thread_cpu=time.thread_time_ns()-cpu;process_cpu=time.process_time_ns()-process
+        after=thread_schedule()
+        final_usage=resource.getrusage(resource.RUSAGE_THREAD) if usage is not None else None
+        delta=None if schedule is None or after is None else [b-a for a,b in zip(schedule,after)]
+        recorder.add(dict(stage=name,acquisition_ns=_sample.get(),start_host_ns=start,end_host_ns=end,
+            thread_id=threading.get_native_id(),thread_cpu_ns=thread_cpu,process_cpu_ns=process_cpu,cpu_ns=process_cpu,
+            schedule_delta=delta,voluntary_switches=None if usage is None else final_usage.ru_nvcsw-usage.ru_nvcsw,
+            involuntary_switches=None if usage is None else final_usage.ru_nivcsw-usage.ru_nivcsw,
+            entry_probe_ns=start-overhead,exit_probe_ns=time.monotonic_ns()-end,**metadata,**detail))
+
+
+@contextmanager
+def trace_span(name, slow_ns=5_000_000, **metadata):
+    """Cheap optional loop probe; no proc/file reads or scheduler guesses.
+
+    Retain slow calls and calls carrying an actual frame label. Fast empty polls
+    are omitted, not reported as zero queue wait. CPU is measured, not inferred.
+    """
+    recorder=_recorder
+    detail={}
+    if recorder is None:
+        yield detail
+        return
+    start=time.monotonic_ns();cpu=time.thread_time_ns();process=time.process_time_ns()
+    try:
+        yield detail
+    finally:
+        end=time.monotonic_ns();thread_cpu=time.thread_time_ns()-cpu
+        process_cpu=time.process_time_ns()-process
+        if end-start>=slow_ns or 'source_ns' in detail:
+            recorder.add(dict(stage=name,acquisition_ns=_sample.get(),start_host_ns=start,end_host_ns=end,
+                thread_id=threading.get_native_id(),thread_cpu_ns=thread_cpu,process_cpu_ns=process_cpu,
+                schedule_delta=None,**metadata,**detail))
+
+
+class FrameQueueLock:
+    """Profile the existing latest-only slot, preserving its exact lock/contents.
+
+    The owner's callback/poll still do all insertion/dequeue operations. Logging
+    occurs after unlocking; no file I/O or change to dropped-frame policy.
+    """
+    def __init__(self, owner):
+        self.owner=owner
+        self.lock=threading.Lock()
+        self.local=threading.local()
+        self.inserted_ns=None
+
+    def __enter__(self):
+        start=time.monotonic_ns();cpu=time.thread_time_ns()
+        self.lock.acquire()
+        acquired=time.monotonic_ns()
+        self.local.before=self.owner._latest
+        self.local.start=start;self.local.cpu=cpu;self.local.acquired=acquired
+        return self
+
+    def __exit__(self, *exc):
+        # Inspect the unchanged slot while held, then release before recording.
+        before=self.local.before;after=self.owner._latest
+        end=time.monotonic_ns();queue_wait=None;replaced=None;kind=None;stamp=None
+        if after is not None and after is not before:
+            kind='camera_queue_insert';stamp=round(after[1]*1e9)
+            replaced=None if before is None else round(before[1]*1e9)
+            self.inserted_ns=end
+        elif before is not None and after is None:
+            kind='camera_queue_dequeue';stamp=round(before[1]*1e9)
+            queue_wait=None if self.inserted_ns is None else self.local.acquired-self.inserted_ns
+            self.inserted_ns=None
+        cpu=time.thread_time_ns()-self.local.cpu
+        self.lock.release()
+        wait=self.local.acquired-self.local.start
+        if kind is not None or wait>=5_000_000:
+            mark(kind or 'camera_queue_lock_wait',source_ns=stamp,event_host_ns=end,
+                lock_start_host_ns=self.local.start,lock_acquired_host_ns=self.local.acquired,
+                lock_wait_ns=wait,lock_thread_cpu_ns=cpu,queue_wait_ns=queue_wait,
+                depth_before=int(before is not None),depth_after=int(after is not None),
+                replaced_source_ns=replaced,thread_id=threading.get_native_id())
+
+
 class FaultFile:
     """Explicit local fault injection, never a navigation-data fallback."""
     def __init__(self,path):
@@ -95,7 +203,10 @@ class FaultFile:
         now=time.monotonic()
         if self.path is None:return {}
         if now-self.last>=.02:
-            value=json.loads(self.path.read_text())
+            with trace_span('fault_control_read',slow_ns=0,path=str(self.path)) as timing:
+                timing['json_loaded']=False
+                value=json.loads(self.path.read_text())
+                timing['json_loaded']=True
             if value.get('fault') not in (None,'camera_loss','imu_loss','tracking_loss','low_contrast','bad_covariance','stale'):
                 raise ValueError('Invalid fault injection control')
             self.value=value;self.last=now

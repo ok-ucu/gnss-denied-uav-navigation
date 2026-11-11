@@ -12,8 +12,18 @@ import subprocess
 import time
 import uuid
 import re
+import math
 
 from launch_phase1 import validate_run_id
+
+
+def fault_write_code(path,row):
+    """Same synchronous fsync/atomic replace for either owned storage location."""
+    return ('import json,os,time; from pathlib import Path; '
+            'p=Path('+repr(path)+'); '
+            'q=p.with_name("fault-'+row['generation']+'.writing"); '
+            'f=q.open("x"); f.write('+repr(json.dumps(row))+'); f.flush(); os.fsync(f.fileno()); f.close(); '
+            'q.replace(p); print(time.monotonic_ns())')
 
 
 def main():
@@ -22,8 +32,16 @@ def main():
     parser.add_argument('--run-id',type=validate_run_id,required=True)
     parser.add_argument('--phase',choices=['before','after'],required=True)
     parser.add_argument('--resource-suffix',choices=['','fine'],default='',help='One-off services on the SAME physics/FCU namespace')
+    parser.add_argument('--transport-suffix',choices=['','store'],default='',help='Owned one-off transport from the SAME Compose stack; retain original container')
     parser.add_argument('--tag',help='NEW evidence basename for a repeated attempt')
+    parser.add_argument('--cases',nargs='+',choices=['normal','camera_loss','imu_loss','tracking_loss','bad_covariance','stale','process_restart','mavros_reconnect','pause_resume','clock_reset'],help='Run only the cases needed for a specific regression')
+    parser.add_argument('--normal-duration',type=float,default=35,help='Bounded normal observation window, wall seconds (10..120)')
+    parser.add_argument('--camera-trace-library',help='Opt-in passive native timing interposer, absolute /opt/integration path in NEW own camera bridge')
+    parser.add_argument('--linux-fault-control',action='store_true',help='Same synchronous fault protocol on the isolated shared Linux volume; no new cache or lease')
     args=parser.parse_args()
+    if args.camera_trace_library and not args.camera_trace_library.startswith('/opt/integration/'):
+        parser.error('Camera trace library must be under the read-only integration mount')
+    if not math.isfinite(args.normal_duration) or not 10<=args.normal_duration<=120:parser.error('Normal duration must be finite, 10..120 seconds')
     prefix=args.tag or args.phase
     if not re.fullmatch('[a-z0-9_]+',prefix):raise ValueError('Invalid evidence tag')
     run=args.run.resolve()
@@ -32,10 +50,14 @@ def main():
     names={kind:f'gnss-p1-{kind}-{args.run_id}' for kind in ('physics','fcu','vio','transport')}
     if args.resource_suffix:
         for kind in ('vio','transport'):names[kind]+='-'+args.resource_suffix
+    if args.transport_suffix:
+        if args.resource_suffix:raise ValueError('Choose one transport override')
+        names['transport']+='-'+args.transport_suffix
     out=run/'evidence'/(prefix+'_matrix');out.mkdir(exist_ok=False)
     audit=(out/'commands.jsonl').open('x');handles=[];children=[]
     ros='source /opt/ros/jazzy/setup.bash; '
     patched=ros+'source /tmp/patch_install/setup.bash; '
+    control_file='/var/lib/phase1-control/latency_fault.json' if args.linux_fault_control else '/run/integration/state/latency_fault.json'
     def command(kind,shell,check=True):
         cmd=['docker','exec',names[kind],'bash','-lc',shell]
         result=subprocess.run(cmd,capture_output=True,text=True,timeout=15)
@@ -56,13 +78,13 @@ def main():
         row=dict(fault=name,generation=str(uuid.uuid4()),host_utc_ns=time.time_ns())
         # Commit on the Linux side. Host-side rename/size invalidation across the
         # macOS bind mount produced a torn reader view in the retained attempt.
-        code=('import json,os,time; from pathlib import Path; '
-              'p=Path("/run/integration/state/latency_fault.json"); '
-              'q=p.with_name("fault-'+row['generation']+'.writing"); '
-              'f=q.open("x"); f.write('+repr(json.dumps(row))+'); f.flush(); os.fsync(f.fileno()); f.close(); '
-              'q.replace(p); print(time.monotonic_ns())')
-        command('vio','python3 -c '+shlex.quote(code))
-        audit.write(json.dumps(dict(event='fault_control',path=str(path),**row))+'\n');audit.flush()
+        command('vio','python3 -c '+shlex.quote(fault_write_code(control_file,row)))
+        audit.write(json.dumps(dict(event='fault_control',path=control_file,**row))+'\n');audit.flush()
+    def read_fault():
+        if not args.linux_fault_control:return json.loads(fault_path.read_text())
+        # Preserve reading the actual file, including errors; no writer-side cache.
+        code='from pathlib import Path; print(Path('+repr(control_file)+').read_text())'
+        return json.loads(command('vio','python3 -c '+shlex.quote(code)).stdout)
     def wire_count(label):
         path=run/'evidence'/label/'wire.jsonl'
         if not path.exists():return 0
@@ -71,7 +93,7 @@ def main():
         label=prefix+'_'+case+'_transport'+str(number)
         extra='' if not initialize else ' --initialize-capture-reference '+str(uuid.uuid4())
         process=start(label,'transport',patched+'exec python3 -B /opt/integration/phase1_transport.py --run /run/integration --output-name '+label+
-                      ' --duration '+str(duration)+' --fault-file /run/integration/state/latency_fault.json'+
+                      ' --duration '+str(duration)+' --fault-file '+shlex.quote(control_file)+
                       ' --mavros-pid-file /run/integration/state/'+prefix+'_mavros.pid'+extra)
         guard_labels.append(label)
         return label,process
@@ -94,19 +116,23 @@ def main():
         command('vio',ros+'python3 -B /opt/integration/vio_ground_fixture.py create --directory '+fixture_dir+' --size-m 1 --tile-size-m .02')
         fixture=True
         camera='/world/iris_runway/model/iris_with_gimbal/model/gimbal/link/pitch_link/sensor/camera/image'
-        start('camera_bridge','vio',ros+'echo $$ > /run/integration/state/'+prefix+'_camera.pid; exec /opt/ros/jazzy/lib/ros_gz_bridge/parameter_bridge '+camera+'@sensor_msgs/msg/Image[gz.msgs.Image --ros-args -r __node:=phase1_latency_camera_bridge')
+        camera_exec='/opt/ros/jazzy/lib/ros_gz_bridge/parameter_bridge '
+        if args.camera_trace_library:
+            camera_exec='env LD_PRELOAD='+shlex.quote(args.camera_trace_library)+' CAMERA_TRACE_PREFIX=/tmp/phase1_camera_boundary '+camera_exec
+        start('camera_bridge','vio',ros+'echo $$ > /run/integration/state/'+prefix+'_camera.pid; exec '+camera_exec+camera+'@sensor_msgs/msg/Image[gz.msgs.Image --ros-args -r __node:=phase1_latency_camera_bridge')
         mavros()
         start('observer','vio',ros+'echo $$ > /run/integration/state/'+prefix+'_observer.pid; exec python3 -B /opt/integration/observe_frame_bridge.py --directory /run/integration/evidence/'+prefix+'_matrix/observer --duration 800 --output-topic /integration/phase1/odometry_enu')
-        cases=['normal'] if args.phase=='before' else ['normal','camera_loss','imu_loss','tracking_loss','bad_covariance','stale','process_restart','mavros_reconnect','pause_resume','clock_reset']
+        cases=args.cases or (['normal'] if args.phase=='before' else ['normal','camera_loss','imu_loss','tracking_loss','bad_covariance','stale','process_restart','mavros_reconnect','pause_resume','clock_reset'])
+        if 'clock_reset' in cases and cases[-1]!='clock_reset':raise ValueError('World reset must be the final case; require a new lifecycle afterwards')
         for case in cases:
             write_fault(fault_path,None)
-            duration=35 if case=='normal' else 25
+            duration=args.normal_duration if case=='normal' else 25
             label,guard=transport(case,1,True,duration+18)
             time.sleep(3)
             source_label=prefix+'_'+case+'_vio'
             source=start(source_label,'vio',ros+'exec python3 -B /opt/integration/run_vio_stream.py --vio-dir /opt/vio --output-dir /run/integration/evidence/'+source_label+
                          ' --duration '+str(duration)+' --ground-z .001 --mount-calibration /run/integration/artifacts/mount_calibration.json'+
-                         ' --profile --async-diagnostics --reliable-camera --min-odom-subscribers 2 --min-epoch-subscribers 1 --fault-file /run/integration/state/latency_fault.json')
+                         ' --profile --async-diagnostics --reliable-camera --min-odom-subscribers 2 --min-epoch-subscribers 1 --fault-file '+shlex.quote(control_file))
             beginning=time.monotonic();injected=False;positive=0;injection_utc=None;restart_label=None
             while source.poll() is None:
                 elapsed=time.monotonic()-beginning
@@ -132,7 +158,7 @@ def main():
                     injected=True
                 # Restore local sensor input, but never the transport reference.
                 if injected and case in ('camera_loss','imu_loss','tracking_loss','bad_covariance','stale') and time.time_ns()-injection_utc>3_000_000_000:
-                    if json.loads(fault_path.read_text())['fault'] is not None:write_fault(fault_path,None)
+                    if read_fault()['fault'] is not None:write_fault(fault_path,None)
                 time.sleep(.1)
             if source.returncode:raise RuntimeError('Source failed; preserve case '+case)
             active=restart_label or label

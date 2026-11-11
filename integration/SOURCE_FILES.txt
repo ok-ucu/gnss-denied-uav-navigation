@@ -1,6 +1,9 @@
 .gitignore
 integration/.gitignore
+integration/HANDOFF_STAGING_FILES.txt
+integration/LINUX_GPU_HANDOFF.md
 integration/MAVROS.isolated.Dockerfile
+integration/PHASE1_STATUS.md
 integration/README.md
 integration/SOURCE_COMMIT.md
 integration/SOURCE_DEPENDENCIES.md
@@ -34,6 +37,17 @@ integration/isolated_blockers/20261109_a/models/patched_c/iris_with_gimbal/model
 integration/isolated_blockers/20261109_a/models/patched_c_world.sdf
 integration/isolated_fcu_dry_run.py
 integration/launch_phase1.py
+integration/linux_gpu/Camera.Dockerfile
+integration/linux_gpu/SITL.Dockerfile
+integration/linux_gpu/analyze_camera.py
+integration/linux_gpu/build_native_probe.sh
+integration/linux_gpu/camera.compose.yaml
+integration/linux_gpu/disarmed.py
+integration/linux_gpu/native_parts_render.cc
+integration/linux_gpu/prepare_context.py
+integration/linux_gpu/prepare_vio.py
+integration/linux_gpu/run_camera.py
+integration/linux_gpu/sample_camera.py
 integration/live_vio_observer_udp.xml
 integration/matched_physics/AP444_BOOLEAN_PATCH_PROPOSAL.patch
 integration/matched_physics/analyze_clock_evidence.py
@@ -63,6 +77,7 @@ integration/physics_clock_mapping.py
 integration/preflight_ekf3.py
 integration/probe_live_vio_preflight.py
 integration/profile_navigation_path.py
+integration/reports/RENDERING_20261111.md
 integration/reset_safety.py
 integration/run_latency_matrix.py
 integration/run_navigation_preflight.py
@@ -71,8 +86,10 @@ integration/run_vio_stream.py
 integration/stage_timing.py
 integration/tests/test_ekf3_bench_analysis.py
 integration/tests/test_ekf3_readiness.py
+integration/tests/test_fault_storage.py
 integration/tests/test_fcu_receipt_guard.py
 integration/tests/test_isolated_blockers.py
+integration/tests/test_linux_gpu_handoff.py
 integration/tests/test_live_vio_preflight.py
 integration/tests/test_matched_physics.py
 integration/tests/test_mavros_contract.py

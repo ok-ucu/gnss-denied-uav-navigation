@@ -5,16 +5,17 @@ import signal
 import subprocess
 import threading
 import time
-from stage_timing import sample,stage,mark
+from stage_timing import sample,stage,mark,critical_stage,trace_span,FrameQueueLock
 
 
 class BoundedRecords:
-    def __init__(self, capacity):
+    def __init__(self, capacity, label=None):
         if capacity <= 0:
             raise ValueError('capacity must be positive')
         self.items = deque(maxlen=capacity)
         self.dropped = 0
         self.lock = threading.Lock()
+        self.label=label
 
     def append(self, item):
         with self.lock:
@@ -23,8 +24,11 @@ class BoundedRecords:
             self.items.append(item)
 
     def snapshot(self):
-        with self.lock:
-            return list(self.items)
+        with critical_stage('source_buffer_snapshot',buffer=self.label) as metrics:
+            before=time.monotonic_ns() if metrics else None
+            with self.lock:
+                if metrics:metrics.update(lock_wait_ns=time.monotonic_ns()-before,size=len(self.items))
+                return list(self.items)
 
     def latest(self):
         with self.lock:
@@ -56,7 +60,7 @@ def capture(camera, imu_topic, duration, output_dir, frame_handler=None, tick_ha
     from gz.msgs10.imu_pb2 import IMU
     from vio_ros_source import RosFrameSource
     cv2.setNumThreads(1)
-    buffers = {key: BoundedRecords(size) for key, size in
+    buffers = {key: BoundedRecords(size,key) for key, size in
                [('imu',120000),('native_imu',120000),('poses',20000),('clocks',120000),('frames',1500)]}
     dedicated_topic='/integration/vio_imu'
     bridge_config=output_dir/'sensor_bridge.yaml'
@@ -89,7 +93,7 @@ def capture(camera, imu_topic, duration, output_dir, frame_handler=None, tick_ha
             begin=time.monotonic()
             ns=msg.header.stamp.sec*10**9+msg.header.stamp.nanosec
             mark('camera_callback_entry',source_ns=ns)
-            with sample(ns),stage('camera_callback'):
+            with sample(ns),critical_stage('source_camera_callback'),stage('camera_callback'):
                 super()._cb(msg)
             camera_records.append(dict(t=msg.header.stamp.sec+msg.header.stamp.nanosec*1e-9,
                                        arrival_monotonic_s=begin,callback_end_monotonic_s=time.monotonic()))
@@ -104,7 +108,8 @@ def capture(camera, imu_topic, duration, output_dir, frame_handler=None, tick_ha
             if not rclpy.ok():rclpy.init()
             overrides=[Parameter('use_sim_time',Parameter.Type.BOOL,use_sim_time)]
             self.node=rclpy.create_node(node_name,parameter_overrides=overrides)
-            self._lock=threading.Lock();self._latest=None
+            self._latest=None
+            self._lock=FrameQueueLock(self) if profile else threading.Lock()
             self.n_frames=self.n_unsupported=self.n_bad_age=0
             self.node.create_subscription(Image,topic,self._cb,
                 QoSProfile(depth=32,reliability=ReliabilityPolicy.RELIABLE))
@@ -123,7 +128,7 @@ def capture(camera, imu_topic, duration, output_dir, frame_handler=None, tick_ha
             native_camera_records.append(dict(t=msg.header.stamp.sec+msg.header.stamp.nsec*1e-9,
                                                arrival_monotonic_s=time.monotonic()))
         native.subscribe(NativeImage,camera,camera_cb)
-    sampler_stop=threading.Event();sampler_thread=None
+    sampler_stop=threading.Event();sampler_thread=None;stack_thread=None
     def sample_load():
         begin=time.monotonic();ticks=[]
         from pathlib import Path
@@ -144,6 +149,17 @@ def capture(camera, imu_topic, duration, output_dir, frame_handler=None, tick_ha
                 load_records.append(dict(error=str(exc),arrival_monotonic_s=time.monotonic()))
             sampler_stop.wait(1.)
 
+    def consumer_stacks(tid):
+        import sys
+        while not sampler_stop.wait(.02):
+            frame=sys._current_frames().get(tid)
+            stack=[]
+            for _ in range(10):
+                if frame is None:break
+                stack.append([frame.f_code.co_filename.rsplit('/',1)[-1],frame.f_code.co_name,frame.f_lineno])
+                frame=frame.f_back
+            mark('source_consumer_stack',stack=stack)
+
     def q(q):return [q.x,q.y,q.z,q.w]
     def vec(v):return [v.x,v.y,v.z]
     def pose_cb(msg):
@@ -158,11 +174,15 @@ def capture(camera, imu_topic, duration, output_dir, frame_handler=None, tick_ha
                                       'gyro':vec(msg.angular_velocity),'q':q(msg.orientation)})
     def imu_cb(msg):
         start=time.monotonic()
+        cpu_start=time.thread_time_ns() if profile else None
         row={'t':msg.header.stamp.sec+msg.header.stamp.nanosec*1e-9,
              'arrival_monotonic_s':start,'frame':msg.header.frame_id,
              'f':vec(msg.linear_acceleration),'gyro':vec(msg.angular_velocity),'q':q(msg.orientation)}
         row['callback_build_s']=time.monotonic()-start
         buffers['imu'].append(row)
+        if profile:
+            row.update(callback_end_host_ns=time.monotonic_ns(),callback_thread_cpu_ns=time.thread_time_ns()-cpu_start,
+                       receipt_thread_id=threading.get_native_id())
     def clock_cb(msg):
         buffers['clocks'].append({'t':msg.clock.sec+msg.clock.nanosec*1e-9,
                                   'arrival_monotonic_s':time.monotonic()})
@@ -179,15 +199,22 @@ def capture(camera, imu_topic, duration, output_dir, frame_handler=None, tick_ha
         thread=threading.Thread(target=executor.spin,daemon=True);thread.start()
         if async_diagnostics:
             sampler_thread=threading.Thread(target=background_load,daemon=True);sampler_thread.start()
+        if profile:
+            stack_thread=threading.Thread(target=consumer_stacks,args=(threading.get_ident(),),daemon=True)
+            stack_thread.start()
         start=time.monotonic()
+        mark('sensor_capture_started')
         while time.monotonic()-start<duration:
-            frame=source.poll()
+            with trace_span('source_poll') as poll_trace:
+                frame=source.poll()
+                if frame is not None:poll_trace['source_ns']=round(frame[1]*1e9)
             if frame is not None:
                 buffers['frames'].append(frame)
                 if frame_handler is not None:
                     frame_handler(frame, buffers)
             if tick_handler is not None:
-                tick_handler(buffers)
+                with trace_span('source_tick'):
+                    tick_handler(buffers)
             if time.monotonic()>=next_load:
                 if not endpoints:
                     endpoints=[{'node':e.node_name,'qos':str(e.qos_profile),'depth':e.qos_profile.depth,
@@ -198,10 +225,13 @@ def capture(camera, imu_topic, duration, output_dir, frame_handler=None, tick_ha
                                       for e in receiver.get_publishers_info_by_topic(camera)]
                 if not async_diagnostics:sample_load()
                 next_load=time.monotonic()+1.
-            time.sleep(.002)
+            with trace_span('source_loop_sleep',slow_ns=10_000_000):
+                time.sleep(.002)
     finally:
+        mark('sensor_capture_finished')
         sampler_stop.set()
         if sampler_thread:sampler_thread.join(timeout=5)
+        if stack_thread:stack_thread.join(timeout=2)
         if executor:executor.shutdown()
         if thread:thread.join(timeout=3)
         if receiver:receiver.destroy_node()

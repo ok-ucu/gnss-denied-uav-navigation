@@ -4,6 +4,8 @@
 full upstream repositories, compiler output, shared libraries, firmware binaries
 or raw recordings. The source can be inspected and its pure tests reproduced;
 full runtime provisioning is still an explicit external prerequisite.
+The [Linux GPU handoff](LINUX_GPU_HANDOFF.md) adds a clean-checkout camera-only
+source build path; it does not admit a new binary into the historical guards.
 
 | Dependency | Recorded version/pin | Expected provision |
 |---|---|---|
@@ -12,7 +14,7 @@ full runtime provisioning is still an explicit external prerequisite.
 | Gazebo / ROS | Harmonic / ROS 2 Jazzy, Linux ARM64 | `gz.transport13`, `gz.msgs10`, `ros_gz_bridge`, rclpy and ROS message packages |
 | MAVROS / libmavconn | 2.16.0 | Packaged vision plugins plus separate included `mavros_time_patch/`; original sys_time excluded |
 | Python | Python 3.10+; NumPy, OpenCV; Matplotlib for figures | Existing runtime packages; no install or version upgrade during this audit |
-| Teammate VIO | `vio_core.py`, `vio_frontend.py`, `vio_ros_source.py`, `vio_ros_out.py` | Provided separately by teammate. `vio/` is untracked here and **not** included or modified by this allowlist |
+| Teammate VIO | `vio_core.py`, `vio_frontend.py`, `vio_ros_source.py`, `vio_ros_out.py` | Pinned at `d33f66008fd7b6de332c96dd324b8ddbd320c194`; the verified `linux_gpu/prepare_vio.py` exports four files to a new ignored dependency directory, separately from teammates' files. `vio/` is untracked here and **not** included or modified by this allowlist |
 | MAVLink codec | v2 ardupilotmega, generated file SHA-256 `011577d7432f6e5e2cb8fe6c15ab4637175ac09ad663bb1e951a09c5d9a872ff` | Explicit single-file protocol-source exception at its current path; not a pymavlink repository or captured data |
 
 The codec is 2,263,701 bytes and is the largest proposed file. Keeping these exact
@@ -65,8 +67,10 @@ The unique parser/build helpers remain at their existing paths under
 that experiment root and write outputs: **do not rerun them over existing
 evidence**. For a future rebuild, use a new external workspace/output, the pinned
 upstream checkout, the included instrumentation and exact boolean patch, and
-`test_sim_json.cpp`. Bootstrap path parameterization and a reviewed artifact
-import are still needed before calling the source package turnkey reproducible.
+`test_sim_json.cpp`. The new `linux_gpu/SITL.Dockerfile` applies the selected patches in a fresh
+pinned upstream copy and runs actual parser C++ tests; it does not rerun these
+historical scripts. Bootstrap for the guarded full pipeline still needs reviewed
+Linux artifact admission. Do not call that full pipeline turnkey reproducible.
 
 [build_mavros_time_patch.sh](build_mavros_time_patch.sh) can build the included
 overlay only into a **new** caller-selected output, using a new disposable
@@ -93,3 +97,19 @@ its SIM_JSON instrumentation/header-access and boolean changes are represented
 by the two selected patches. Copies of the signed TIMESYNC proposal under old
 `code_after/` snapshots are also omitted; they are not a second runtime patch.
 All those historical files remain on disk unchanged.
+
+## New clean-checkout camera-only path
+
+`linux_gpu/prepare_context.py` exports only the exact recipe/COPY sources into
+NEW ignored tiny contexts. This preparation and pinned VIO export were verified;
+no upstream checkout or recording is sent as Docker build context. Camera recipe
+includes ROS Jazzy, pinned plugin, build dependencies, Mesa tools, native witness,
+NumPy/OpenCV/Matplotlib and optional perf. SITL recipe pins4.4.4, applies exact
+parser/trace patches and requires real parser C++ tests to pass. Linux Docker
+builds, package availability, driver integration and runtime are NOT TESTED here.
+Mutable distro/base repositories prevent a bit-identical build guarantee.
+
+Camera-only Compose starts no VIO/MAVROS/transport, publishes no host ports and
+leaves navigation source/GPS unchanged. Source-only preparation can be validated
+without those generated binary/overlay dependencies. All generated contexts,
+VIO exports and results stay under ignored `linux_gpu_runs/`.

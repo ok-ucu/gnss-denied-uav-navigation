@@ -6,7 +6,7 @@ covariance conversion, clock/reset/egress guards, patched MAVROS overlay source,
 capture-only Compose configuration, analysis and offline tests. This source
 package does not prove live-camera EKF3 fusion or GNSS-denied flight.
 
-[Exact proposed files](SOURCE_FILES.txt) · [Review/staging plan](SOURCE_COMMIT.md) ·
+[Source allowlist](SOURCE_FILES.txt) · [Review/staging plan](SOURCE_COMMIT.md) ·
 [External dependencies and bootstrap limits](SOURCE_DEPENDENCIES.md).
 
 ```text
@@ -24,9 +24,15 @@ horizontal GT is not an estimator input. Correct mounting, preserved acquisition
 timestamps and 21/9-element wire covariance do not establish flight readiness.
 Timing, continuity, covariance calibration, reference and live fusion gates
 remain open. Historical evidence remains locally under the ignored run folders.
-`PHASE1_STATUS.md` is a local evidence-linked report, deliberately outside this
-minimal source allowlist because its linked recordings are not part of a source
-commit. No historical report or recording is moved or rewritten by this cleanup.
+[PHASE1_STATUS.md](PHASE1_STATUS.md) and the [preserved evidence summary](reports/RENDERING_20261111.md) ship in Git; raw historical evidence remains local and is not required by the Linux camera-only workflow.
+
+## Linux GPU handoff
+
+Start with [LINUX_GPU_HANDOFF.md](LINUX_GPU_HANDOFF.md). It includes measured
+software-rendering evidence, native-architecture build contexts, camera-only
+DISARMED launcher, actual GL-device verification and precise remaining full-stack
+provisioning limits. Preparation/Compose/closure checks do not start simulations.
+New Linux image builds and hardware GPU execution remain NOT TESTED here.
 
 ## Checks that do not start a simulator
 
@@ -43,10 +49,31 @@ ROS/Gazebo imports are generally lazy, but using the already installed ROS Jazzy
 runtime is the verified full-suite environment. Missing dependencies are not
 treated as a PASS. No package is installed by the audit script.
 
-The latest full offline suite ran **108/108 PASS** in the existing ARM64 worker;
-this source-scope review also verifies a copy containing only allowlisted files.
+The pre-handoff full offline suite ran **113/113 PASS** in the ARM64 worker;
+the handoff validation result is recorded in [the source scope](SOURCE_COMMIT.md).
+The earlier source-only bundle review ran 108/108 before the timing regressions
+were added; that historical result is not relabelled as a new 113-test run.
 Exact local logs are under ignored `source_scope_audit/` or `phase1_runs/`.
 Neither unit tests nor Compose resolution is a new live-navigation verification.
+
+The current Compose transport uses one CPU and a run-scoped persistent Linux
+volume, `gnss-p1-guard-<run-id>`, for synchronous guard writes and final reads.
+This removes measured macOS bind-mount I/O from those operations; it does not
+remove durable checks, extend permissions or provide a real-time bound. Never
+delete/recreate that volume to clear a latch. Evidence snapshots are diagnostic
+copies and must not be restored as authorization. Standalone transport keeps its
+legacy run-state path unless `PHASE1_GUARD_STATE_DIR` is explicitly configured.
+
+The historical timing2 capture-only fragment admitted 21 pose/speed pairs, with all 42 packets
+timely at the wire check, then closed on the 200 ms clock watchdog. Only 21/88
+source Odometry samples reached both wire channels; this is **not** continuous
+end-to-end readiness. No vision packet reached FCU. Local details and unresolved
+gates are in `PHASE1_STATUS.md` and ignored `phase1_runs/20261109-timing2/`.
+The subsequent clock-stall follow-up corrected common-watermark liveness
+accounting, but bounded 60-second normal runs still failed on upstream JSON/physics
+pauses and expiry. Scheduling hypotheses were reverted; no continuous PASS or
+new FCU forwarding is claimed. Details remain in the local status and ignored
+`phase1_runs/20261109-clock5/REPORT.md`.
 
 ## Runtime entry points — prerequisites required, not executed by this audit
 

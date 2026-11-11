@@ -64,7 +64,7 @@ class AppliedClockMapping:
         if source_epoch!=self.source_epoch or not integer(source_ns) or not integer(host_ns):
             raise ValueError('clock epoch/domain mismatch')
         rows=list(self.anchors)
-        if not 0<=host_ns-rows[-1]['host_ns']<=self.max_age_ns:raise ValueError('applied clock expired/paused')
+        self.check_freshness(host_ns)
         index=bisect_left([r['source_ns'] for r in rows],source_ns)
         if index==len(rows) or source_ns<rows[0]['source_ns']:raise ValueError('no bracketing physics samples; never extrapolate')
         if rows[index]['source_ns']==source_ns:
@@ -81,3 +81,10 @@ class AppliedClockMapping:
 
     def check_clock(self,source_ns,host_ns):
         return self.map(source_ns,host_ns,self.source_epoch)
+
+    def check_freshness(self,host_ns):
+        """Age the latest actual production event, never its file-read time."""
+        if not self.verified or self.broken:raise ValueError('unverified applied clock proof')
+        if not integer(host_ns) or not 0<=host_ns-self.anchors[-1]['host_ns']<=self.max_age_ns:
+            raise ValueError('applied clock expired/paused')
+        return self.anchors[-1]
