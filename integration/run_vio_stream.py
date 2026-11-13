@@ -22,6 +22,24 @@ def recovery_deadline(stamp):
     return None if stamp is None else stamp+.25
 
 
+def clock_status(stamp, clock, now=None, limit=.2):
+    """Describe the existing sim-age and host-receipt checks separately."""
+    from vio_quality_gate import fresh
+    # The callback may run after frame entry but before its clock snapshot.
+    # Compare receipt to validation time, never an earlier frame-entry instant.
+    now=time.monotonic() if now is None else now
+    age=clock['t']-stamp
+    wall_age=now-clock['arrival_monotonic_s']
+    reasons=[]
+    if not fresh(age,limit):
+        reasons.append('simulation clock behind frame' if age<0 else 'simulation age exceeded/nonfinite')
+    if not 0<=wall_age<=.5:
+        reasons.append('callback receipt stale/future/nonfinite')
+    return dict(valid=not reasons,reasons=reasons,frame_sim_s=stamp,clock_sim_s=clock['t'],validation_host_s=now,
+        simulation_age_s=age,callback_age_wall_s=wall_age,
+        ipc_delivery_s=None if 'ipc_received_monotonic_s' not in clock else clock['ipc_received_monotonic_s']-clock['arrival_monotonic_s'])
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--output-dir', type=Path, required=True)
@@ -33,6 +51,7 @@ def main():
     p.add_argument('--profile',action='store_true')
     p.add_argument('--async-diagnostics',action='store_true',help='Opt-in: move process-load sampling off frame consumer')
     p.add_argument('--reliable-camera',action='store_true',help='Opt-in: reliable subscription on our RosFrameSource node')
+    p.add_argument('--isolated-imu',action='store_true',help='Opt-in: bounded spawned ROS IMU/clock receiver; no timestamp replacement')
     p.add_argument('--min-odom-subscribers',type=int,default=0)
     p.add_argument('--min-epoch-subscribers',type=int,default=0)
     p.add_argument('--mount-calibration',type=Path,help='Opt-in fixed measured body lever; use IMU, never world GT attitude, for camera depth')
@@ -82,6 +101,7 @@ def main():
                  imu_index=0, initialized=False, reset_after=None, last_frame_wall=None,
                  last_seen_imu=None, last_imu_wall=None, frame_stamp=None, emitted=0,
                  accepted=0, rejected=0, gaps=0, recoveries=0)
+    publication_health=[None]
     started = time.monotonic()
     fault_events = []
     active_fault = [None]
@@ -90,6 +110,7 @@ def main():
     schedule=[(name,lo+a.fault_offset,hi+a.fault_offset) for name,lo,hi in schedule]
     config = dict(duration=a.duration, ground_z=a.ground_z, faults=schedule, started_monotonic_s=started,
                   profile=a.profile,async_diagnostics=a.async_diagnostics,reliable_camera=a.reliable_camera,session=session,
+                  isolated_imu=a.isolated_imu,
                   min_odom_subscribers=a.min_odom_subscribers,min_epoch_subscribers=a.min_epoch_subscribers,
                   horizontal_gt_input=False, external_nav=False, fx=205.4696,
                   gate='3 frames + 250ms, <=200ms sim image age, 500ms wall watchdog',
@@ -102,6 +123,8 @@ def main():
                                for path in [Path(__file__), Path(__file__).with_name('vio_quality_gate.py'),
                                             Path(__file__).with_name('vio_sensor_capture.py')]
                                + [a.vio_dir/name for name in ('vio_core.py', 'vio_frontend.py', 'vio_ros_source.py', 'vio_ros_out.py')]}
+    if a.isolated_imu:
+        config['source_sha256']['isolated_imu.py']=hashlib.sha256(Path(__file__).with_name('isolated_imu.py').read_bytes()).hexdigest()
     config.update(fixed_mount_calibration=None if a.mount_calibration is None else str(a.mount_calibration),
                   fault_file=None if a.fault_file is None else str(a.fault_file),
                   world_gt_attitude_used_for_camera_depth=calibrated_lever is None,
@@ -137,6 +160,8 @@ def main():
             self.odom_publisher=real
             class CheckedPublisher:
                 def publish(_, msg):
+                    if publication_health[0] is not None:
+                        publication_health[0]()
                     # RosOdomPublisher leaves angular rate unknown (-1 covariance).
                     # Odometry has no IMU-style -1 sentinel. Supply ACTUAL aligned
                     # gyro and explicit large uncertainty, without changing vio/.
@@ -182,10 +207,14 @@ def main():
 
     def tick(buffers):
         wall = time.monotonic()
-        imu = buffers['imu'].latest()
+        try:
+            imu = buffers['imu'].latest()
+        except ValueError as exc:
+            block(str(exc),state['frame_stamp'],reset=True)
+            return
         if imu and fault() != 'imu_loss' and imu['t'] != state['last_seen_imu']:
             state['last_seen_imu'] = imu['t']
-            state['last_imu_wall'] = wall
+            state['last_imu_wall'] = imu['arrival_monotonic_s']
         for key, reason in [('last_frame_wall', 'camera wall watchdog'), ('last_imu_wall', 'IMU wall watchdog')]:
             if state[key] is not None and wall-state[key] > .5:
                 block(reason, state['frame_stamp'], reset=(key == 'last_imu_wall'))
@@ -194,6 +223,7 @@ def main():
         nonlocal ekf, frontend
         gray, t, _, source_age = frame
         wall = time.monotonic()
+        frame_cpu = time.thread_time()
         injected = fault()
         if injected != active_fault[0]:
             fault_events.append(dict(fault=injected, previous=active_fault[0],
@@ -203,7 +233,7 @@ def main():
             return
         state['last_frame_wall'] = wall
         state['frame_stamp'] = t
-        row = dict(t=t, wall=wall, fault=injected, published=False)
+        row = dict(t=t, wall=wall, fault=injected, published=False,source_age=source_age)
         phase=time.monotonic()
         try:
             if state['previous_t'] is not None and t <= state['previous_t']:
@@ -223,7 +253,10 @@ def main():
             if a.profile:
                 row['queue_depths']=dict(imu=len(imu),poses=len(poses),clocks=len(clocks),imu_consumer_index=state['imu_index'])
             clock = clocks[-1]
-            if not fresh(clock['t']-t, .2) or wall-clock['arrival_monotonic_s'] > .5:
+            row['clock_check']=clock_status(t,clock)
+            row['clock_check'].update(newest_imu_sim_s=imu[-1]['t'],clock_rows=len(clocks),imu_rows=len(imu))
+            row['clock_check']['publishers']=getattr(buffers['clocks'],'publishers',[])
+            if not row['clock_check']['valid']:
                 raise ValueError('stale/uncomparable clock')
             causal = next((v for v in reversed(poses) if v['t'] <= t), None)
             if causal is None or t-causal['t'] > .05:
@@ -257,6 +290,7 @@ def main():
             imu_process_begin=time.monotonic()
             gyro_samples = []
             imu_begin=time.monotonic()
+            imu_cpu_begin=time.thread_time()
             max_gap = .001
             with critical_stage('source_imu_processing'):
                 while state['imu_index'] < len(imu) and imu[state['imu_index']]['t'] <= t:
@@ -283,6 +317,7 @@ def main():
                     gyro_samples.append((dt, np.asarray(last['gyro'])))
                 state['filter_t'] = t
                 row['imu_processing_wall_s']=time.monotonic()-imu_begin
+                row['imu_processing_thread_cpu_s']=time.thread_time()-imu_cpu_begin
             if a.profile:
                 processed=imu[imu_start_index:state['imu_index']]
                 row['imu_batch']=dict(count=len(processed),pending=len(imu)-state['imu_index'],
@@ -360,13 +395,14 @@ def main():
             if ready:
                 current_clock = buffers['clocks'].latest()
                 current_wall = time.monotonic()
+                row['publication_clock_check']=clock_status(t,current_clock,current_wall,limit=.18)
                 odom_matches=output_node.odom_publisher.get_subscription_count()
                 epoch_matches=epoch_pub.get_subscription_count()
                 row.update(odom_subscribers=odom_matches,epoch_subscribers=epoch_matches)
                 if a.profile:row['publication_check_age_sim_s']=current_clock['t']-t
                 if odom_matches<a.min_odom_subscribers or epoch_matches<a.min_epoch_subscribers:
                     block('waiting for downstream DDS discovery',t);row['ready']=False
-                elif not fresh(current_clock['t']-t, .18) or current_wall-current_clock['arrival_monotonic_s'] > .5:
+                elif not row['publication_clock_check']['valid']:
                     block('stale at publication', t)
                     row['ready'] = False
                     row['error'] = 'stale at publication'
@@ -380,9 +416,12 @@ def main():
         except (ValueError, KeyError) as exc:
             block(str(exc), t)
             row['error'] = str(exc)
+        row.setdefault('processing_s',time.monotonic()-wall)
+        row['processing_thread_cpu_s']=time.thread_time()-frame_cpu
         write(row)
 
     def handle(frame,buffers):
+        publication_health[0]=buffers['clocks'].check_health
         with sample(round(frame[1]*1e9)),critical_stage('source_frame'):
             return process_frame(frame,buffers)
 
@@ -390,12 +429,13 @@ def main():
     imu_topic = '/world/iris_runway/model/iris_with_gimbal/model/iris_with_standoffs/link/imu_link/sensor/imu_sensor/imu'
     try:
         data = capture(camera, imu_topic, a.duration, a.output_dir, handle, tick,
-                       profile=a.profile,async_diagnostics=a.async_diagnostics,reliable_camera=a.reliable_camera)
+                       profile=a.profile,async_diagnostics=a.async_diagnostics,reliable_camera=a.reliable_camera,
+                       isolated_imu=a.isolated_imu)
         for key in ('imu', 'native_imu', 'poses', 'clocks'):
             with (a.output_dir/(key+'.jsonl')).open('x') as f:
                 for row in data[key]:
                     f.write(json.dumps(row)+'\n')
-        (a.output_dir/'capture_meta.json').write_text(json.dumps(dict(qos=data['qos'], overflows=data['buffer_overflows'],camera_profile=data['camera_profile']), indent=2)+'\n')
+        (a.output_dir/'capture_meta.json').write_text(json.dumps(dict(qos=data['qos'], overflows=data['buffer_overflows'],camera_profile=data['camera_profile'],isolated_imu=data.get('isolated_imu')), indent=2)+'\n')
     finally:
         # capture owns shutdown; destroy publisher node before process exits.
         ros_node.destroy_node()

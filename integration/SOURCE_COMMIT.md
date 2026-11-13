@@ -1,5 +1,32 @@
 # Linux GPU source handoff scope
 
+## Current update — 14 November 2026
+
+The current source set includes isolated IMU/clock ingestion, source-continuity
+launcher/witness/independent-observer analysis, validation-time clock freshness
+correction, native build-record/ELF checks, public-base MAVROS overlay recipe,
+isolated replay fixture, GPU preview configurations and accurate permission
+boundary analysis. The latter corrects attribution/measurement; it does not
+solve the observed live permission expiration or extend its deadline.
+
+Final selected-source validation: **168/168 offline tests PASS, no skips** in a
+132-file source-only snapshot on Mac Python3.9.6, NumPy1.26.4 and
+OpenCV-headless4.10.0.84. Only the four pinned external VIO files were supplied;
+historical artifacts and unselected legacy tools were absent. Docker Engine
+was unavailable; these tests ran natively, without starting/restarting Docker.
+Dependencies were installed only in an ignored isolated test environment.
+Source audit, AST/XML/shell syntax, source/COPY closure, Markdown links, secret
+patterns and static Compose validation PASS. No new Linux build/runtime PASS is claimed.
+The four external VIO files remain pinned and unmodified. The current practical
+order and STOP gates are in [README.md](README.md).
+
+Unselected legacy trials/reports, historical logs, ZIPs, images, raw frames,
+firmware/install/build outputs, root test_gazebo_flight.py and teammate vio/
+remain local and excluded. The compact recorded replay fixture is an explicit
+source-test exception; its original recording is not shipped or rewritten.
+
+## Previous handoff scope
+
 **Phase1 HOLD; execution_allowed=false; forwarding_enabled=false.**
 [SOURCE_FILES.txt](SOURCE_FILES.txt) is the exact source-package allowlist.
 [Handoff](LINUX_GPU_HANDOFF.md) · [Dependencies](SOURCE_DEPENDENCIES.md).

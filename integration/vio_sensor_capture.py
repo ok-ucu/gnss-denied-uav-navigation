@@ -16,6 +16,7 @@ class BoundedRecords:
         self.dropped = 0
         self.lock = threading.Lock()
         self.label=label
+        self.check_health = None
 
     def append(self, item):
         with self.lock:
@@ -24,6 +25,8 @@ class BoundedRecords:
             self.items.append(item)
 
     def snapshot(self):
+        if self.check_health is not None:
+            self.check_health()
         with critical_stage('source_buffer_snapshot',buffer=self.label) as metrics:
             before=time.monotonic_ns() if metrics else None
             with self.lock:
@@ -31,6 +34,8 @@ class BoundedRecords:
                 return list(self.items)
 
     def latest(self):
+        if self.check_health is not None:
+            self.check_health()
         with self.lock:
             return self.items[-1] if self.items else None
 
@@ -48,7 +53,7 @@ def recovery_ready(samples, now, not_before, stable_span=.25, max_gap=.02):
 
 
 def capture(camera, imu_topic, duration, output_dir, frame_handler=None, tick_handler=None,
-            profile=False, async_diagnostics=False, reliable_camera=False):
+            profile=False, async_diagnostics=False, reliable_camera=False, isolated_imu=False):
     import cv2
     import rclpy
     from rclpy.executors import SingleThreadedExecutor
@@ -83,8 +88,9 @@ def capture(camera, imu_topic, duration, output_dir, frame_handler=None, tick_ha
     bridge=subprocess.Popen(['ros2','run','ros_gz_bridge','parameter_bridge',
                               '--ros-args','-r','__node:=vio_sensor_bridge','-p','config_file:='+str(bridge_config)],
                              stdout=bridge_log,stderr=subprocess.STDOUT,start_new_session=True)
-    source=None; receiver=None; executor=None; thread=None
-    load_records=[]; next_load=0.; endpoints=[];camera_endpoints=[]
+    source=None; receiver=None; executor=None; thread=None; isolated=None
+    load_records=[]; next_load=0.; endpoints=[];camera_endpoints=[];clock_endpoints=[];clock_graph=[]
+    buffers['clocks'].publishers=[]
     native=Node()
     camera_records=BoundedRecords(10000)
     native_camera_records=BoundedRecords(10000)
@@ -193,10 +199,17 @@ def capture(camera, imu_topic, duration, output_dir, frame_handler=None, tick_ha
         receiver=rclpy.create_node('vio_dedicated_imu_receiver')
         qos=QoSProfile(depth=4096,reliability=ReliabilityPolicy.RELIABLE,
                        durability=DurabilityPolicy.VOLATILE)
-        sub=receiver.create_subscription(Imu,dedicated_topic,imu_cb,qos)
-        clock_sub=receiver.create_subscription(Clock,'/clock',clock_cb,qos)
-        executor=SingleThreadedExecutor();executor.add_node(receiver)
-        thread=threading.Thread(target=executor.spin,daemon=True);thread.start()
+        if isolated_imu:
+            from isolated_imu import IsolatedImuReceiver
+            isolated=IsolatedImuReceiver(buffers,dedicated_topic,profile)
+            isolated.start()
+            for name in ('imu','clocks'):
+                buffers[name].check_health=isolated.check
+        else:
+            sub=receiver.create_subscription(Imu,dedicated_topic,imu_cb,qos)
+            clock_sub=receiver.create_subscription(Clock,'/clock',clock_cb,qos)
+            executor=SingleThreadedExecutor();executor.add_node(receiver)
+            thread=threading.Thread(target=executor.spin,daemon=True);thread.start()
         if async_diagnostics:
             sampler_thread=threading.Thread(target=background_load,daemon=True);sampler_thread.start()
         if profile:
@@ -216,6 +229,13 @@ def capture(camera, imu_topic, duration, output_dir, frame_handler=None, tick_ha
                 with trace_span('source_tick'):
                     tick_handler(buffers)
             if time.monotonic()>=next_load:
+                observed_clock=[dict(node=e.node_name,namespace=e.node_namespace,
+                    gid=bytes(e.endpoint_gid).hex(),qos=str(e.qos_profile))
+                    for e in receiver.get_publishers_info_by_topic('/clock')]
+                if observed_clock!=clock_endpoints:
+                    clock_endpoints=observed_clock
+                    clock_graph.append(dict(host_monotonic_s=time.monotonic(),publishers=clock_endpoints))
+                    buffers['clocks'].publishers=clock_endpoints
                 if not endpoints:
                     endpoints=[{'node':e.node_name,'qos':str(e.qos_profile),'depth':e.qos_profile.depth,
                                 'reliability':str(e.qos_profile.reliability)}
@@ -229,14 +249,32 @@ def capture(camera, imu_topic, duration, output_dir, frame_handler=None, tick_ha
                 time.sleep(.002)
     finally:
         mark('sensor_capture_finished')
+        shutdown_error=None
         sampler_stop.set()
         if sampler_thread:sampler_thread.join(timeout=5)
         if stack_thread:stack_thread.join(timeout=2)
+        if isolated is not None:
+            try:
+                isolated.close()
+            except RuntimeError as exc:
+                # Still stop the owned ROS/bridge resources below. The failed
+                # worker session remains unhealthy and cannot publish again.
+                isolated.reason=str(exc)
+                isolated.fault.set()
+                shutdown_error=exc
+            finally:
+                # Capture has finished: evidence export only.
+                for name in ('imu','clocks'):
+                    buffers[name].check_health=None
         if executor:executor.shutdown()
         if thread:thread.join(timeout=3)
         if receiver:receiver.destroy_node()
         if source:source.close()
         os.killpg(bridge.pid,signal.SIGTERM);bridge.wait(timeout=5);bridge_log.close()
+        if shutdown_error is not None:
+            with (output_dir/'isolated_shutdown_error.txt').open('x') as error:
+                error.write(str(shutdown_error)+'\n')
+            raise shutdown_error
     import json
     (output_dir/'process_load.json').write_text(json.dumps(load_records,indent=2)+'\n')
     if profile:
@@ -246,6 +284,17 @@ def capture(camera, imu_topic, duration, output_dir, frame_handler=None, tick_ha
     result={name:buffer.snapshot() for name,buffer in buffers.items()}
     result['buffer_overflows']={name:buffer.dropped for name,buffer in buffers.items()}
     result['qos']={'depth':4096,'reliability':'RELIABLE','publisher_endpoints':endpoints,'imu_topic':dedicated_topic,'publisher_queue':4096,'subscriber_queue':4096,'executor':'dedicated IMU+clock, separate from image conversion'}
+    result['qos']['isolated_imu_process']=isolated_imu
+    result['qos']['clock_publishers']=clock_graph
+    result['isolated_imu']=None if isolated is None else dict(
+        worker_pid=isolated.process.pid,batches=isolated.sequence,rows=isolated.row_counts,
+        failure=isolated.reason,worker_fault=isolated.fault.is_set(),
+        produced_batches=isolated.produced.value,
+        queued_unconsumed_batches=max(0,isolated.produced.value-isolated.sequence),
+        shutdown_tail_flushed=False,
+        queue_batch_bound=32,flush_target_s=.003,delivery_bound_established=False,
+        ipc_metrics=list(isolated.metrics),metric_overflows=isolated.metric_overflows,
+        worker_stopped=not isolated.process.is_alive())
     result['camera_profile']=dict(enabled=profile,ros_callbacks=source.n_frames,
         unsupported=source.n_unsupported,bad_age=source.n_bad_age,
         reader_reliability='RELIABLE' if reliable_camera else 'BEST_EFFORT',reader_depth=32 if reliable_camera else 5,

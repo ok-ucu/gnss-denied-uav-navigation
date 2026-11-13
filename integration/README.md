@@ -28,6 +28,30 @@ remain open. Historical evidence remains locally under the ignored run folders.
 
 ## Linux GPU handoff
 
+Current validation instructions: [VIO source OFF/ON/OFF](VIO_SOURCE_PROBE.md),
+[amd64 build/provenance and isolated TIMESYNC](AMD64_TRANSPORT_READINESS.md),
+and [reviewed teammate evidence](reports/VIO_ISOLATION_20261113.md).
+The current source package has168offline tests; native runtime results remain
+separate from those tests. The selected compact replay JSONL is an intentional
+test fixture with recorded provenance, not a runtime capture dump.
+
+Follow these gates in order; stop at the first FAIL or missing evidence:
+
+|Gate|Existing command/procedure|Required PASS/evidence|
+|---|---|---|
+|Linux GPU access + renderer|On the Linux host: `uname -sm`; driver/device inventory; `docker exec gnss-sim-gazebo cat /tmp/render_gl_identity.txt` plus current Ogre log|Actual context corroborated, no llvmpipe/software/WARP; host GPU alone is insufficient|
+|Native builds/provenance|Run the build/export blocks in [amd64 readiness](AMD64_TRANSPORT_READINESS.md)|Pinned AP commit, actual parser5/5, ELF/image architecture, patch/context/base/binary hashes; candidate stays HOLD|
+|Isolated overlay|Run `linux_gpu/check_timesync.sh` in the documented NEW network-none container|Actual patched-plugin load, signed offset/jitter/drift/reset replay, unchanged stamps, valid21/9covariance, no packet loss/duplicates|
+|VIO continuity|Run `run_vio_source_probe.sh` using the [source procedure](VIO_SOURCE_PROBE.md)|Independent subscriber; full-window/tail gaps<=500ms; publication age<=180ms sim; healthy ordered IMU/IPC, no recovery/loss|
+|Native clock admission|Separate review of applied-clock trace/cross-check and firmware identity|Not yet verified for amd64; candidate cannot self-approve or execute|
+|Capture normal|Only after admission, run `run_latency_matrix.py --cases normal --normal-duration 60 --isolated-imu` with its documented run arguments|Both wire channels for each eligible sample, valid permission at final boundary,200ms clock/500ms availability, zero FCU vision packets|
+
+Latest environment check on14November: local Darwin arm64; the configured Linux
+SSH endpoint timed out. Linux validation is **BLOCKED BY ENVIRONMENT**, not a renderer
+or runtime FAIL. No remote test result is inferred. Full amd64 capture startup
+also remains blocked by native clock/runtime admission; do not bypass it with
+manual Compose startup or relabel source/replay PASS as flight readiness.
+
 Start with [LINUX_GPU_HANDOFF.md](LINUX_GPU_HANDOFF.md). It includes measured
 software-rendering evidence, native-architecture build contexts, camera-only
 DISARMED launcher, actual GL-device verification and precise remaining full-stack

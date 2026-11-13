@@ -10,6 +10,9 @@ INPUTS={
     'sitl':['linux_gpu/SITL.Dockerfile','isolated_blockers/20261109_a/evidence/instrumentation.patch',
             'isolated_blockers/20261109_a/code/AP444_BOOLEAN_EXACT.patch',
             'isolated_blockers/20261109_a/code/test_sim_json.cpp'],
+    'mavros':['linux_gpu/MAVROS.Dockerfile','mavros_time_patch/src/sys_time.cpp',
+              'mavros_time_patch/CMakeLists.txt','mavros_time_patch/package.xml',
+              'mavros_time_patch/plugins.xml','mavros_time_patch/LICENSE.md'],
 }
 
 def prepare(kind,output):

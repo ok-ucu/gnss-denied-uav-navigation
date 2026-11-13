@@ -6,12 +6,16 @@ or raw recordings. The source can be inspected and its pure tests reproduced;
 full runtime provisioning is still an explicit external prerequisite.
 The [Linux GPU handoff](LINUX_GPU_HANDOFF.md) adds a clean-checkout camera-only
 source build path; it does not admit a new binary into the historical guards.
+The current [amd64 preparation](AMD64_TRANSPORT_READINESS.md) adds a public-base
+MAVROS2.16.0 recipe, explicit artifact exports and PREPARE-ONLY candidates.
+[VIO continuity](VIO_SOURCE_PROBE.md) uses an independent subscriber; neither
+procedure grants FCU forwarding or a native firmware admission.
 
 | Dependency | Recorded version/pin | Expected provision |
 |---|---|---|
 | ArduPilot Copter | [9279df6191a772c098b2e4797c95ac954f258d88](https://github.com/ArduPilot/ardupilot/tree/9279df6191a772c098b2e4797c95ac954f258d88), 4.4.4 | Fetch upstream recursively outside the commit; build only a new copy with the included boolean/instrumentation patches and actual C++ tests |
 | ArduPilot Gazebo plugin | [f116b03552d05c8d0b0bed5ed67033a1183121d1](https://github.com/ArduPilot/ardupilot_gazebo/tree/f116b03552d05c8d0b0bed5ed67033a1183121d1) | Ignored `ardupilot_gazebo/source/` or an external build context; do not vendor checkout/meshes/build tree |
-| Gazebo / ROS | Harmonic / ROS 2 Jazzy, Linux ARM64 | `gz.transport13`, `gz.msgs10`, `ros_gz_bridge`, rclpy and ROS message packages |
+| Gazebo / ROS | Harmonic / ROS 2 Jazzy, Linux native arm64/amd64 | `gz.transport13`, `gz.msgs10`, `ros_gz_bridge`, rclpy, rosidl_runtime_py and ROS message packages; native amd64 runtime remains unverified here |
 | MAVROS / libmavconn | 2.16.0 | Packaged vision plugins plus separate included `mavros_time_patch/`; original sys_time excluded |
 | Python | Python 3.10+; NumPy, OpenCV; Matplotlib for figures | Existing runtime packages; no install or version upgrade during this audit |
 | Teammate VIO | `vio_core.py`, `vio_frontend.py`, `vio_ros_source.py`, `vio_ros_out.py` | Pinned at `d33f66008fd7b6de332c96dd324b8ddbd320c194`; the verified `linux_gpu/prepare_vio.py` exports four files to a new ignored dependency directory, separately from teammates' files. `vio/` is untracked here and **not** included or modified by this allowlist |
@@ -42,7 +46,11 @@ These are **not registry repo digests that a teammate can simply pull**.
 [plugin Dockerfile](ardupilot_gazebo/Dockerfile) retain the available build
 definitions, but depend on local base tags `gnss-gazebo-ardupilot:dev` and `gz-sim`.
 A published/pinned base-image build chain or controlled transfer is still needed
-for fresh-machine runtime reproduction. No build/pull is performed here.
+for the legacy defaults. The new `linux_gpu/MAVROS.Dockerfile` accepts a public
+ROS image digest and exact2.16.0 package versions, rebuilding the existing
+overlay at its original prefix. Repository/package availability must be checked
+on Linux. These version-constrained records are not a bit-identical apt snapshot.
+No build/pull is performed by the offline validation.
 
 ## Source versus required generated runtime paths
 
@@ -76,6 +84,23 @@ Linux artifact admission. Do not call that full pipeline turnkey reproducible.
 overlay only into a **new** caller-selected output, using a new disposable
 builder and the existing base image. It does not patch the original install.
 No build output belongs in the source allowlist.
+
+The new replay uses only the reviewed56KB
+`tests/fixtures/mavros_timesync_replay.jsonl` and its checksum/selection metadata.
+It retains20historical ROS pairs and associated clock labels, not a live VIO or
+FCU test. The original ignored ingress recording is informational provenance;
+the replay and unit tests do not require it after cloning.
+`probe_patched_timesync.py` is required by that replay and is explicitly included.
+If the VIO pin is absent from a fresh clone, obtain its Git object explicitly
+before `prepare_vio.py`; do not silently use the untracked local `vio/` files.
+
+```bash
+git fetch origin d33f66008fd7b6de332c96dd324b8ddbd320c194
+python3 -B integration/linux_gpu/prepare_vio.py --output integration/linux_gpu_runs/vio-NEW
+```
+
+This fetch obtains the dependency object without switching or merging branches;
+the helper verifies all four source hashes before export.
 
 ## Small immutable test/config inputs deliberately retained
 

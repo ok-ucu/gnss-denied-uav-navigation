@@ -17,12 +17,13 @@ import sysconfig
 ROOT=Path(__file__).resolve().parents[1]
 INTEGRATION=ROOT/'integration'
 EXTERNAL={'numpy','cv2','matplotlib','rclpy','geometry_msgs','mavros_msgs','nav_msgs',
-          'rosgraph_msgs','sensor_msgs','std_msgs','gz',
+          'rosgraph_msgs','sensor_msgs','std_msgs','rosidl_runtime_py','gz',
           'vio_core','vio_frontend','vio_ros_out','vio_ros_source','fastcrc'}
 RUNTIME_ONLY={
     'integration/isolated_blockers/20261109_a/evidence/arducopter_patched':'generated patched ARM64 firmware; never source',
     'integration/timesync_patch_runs/20261108/patch_install/setup.bash':'generated colcon overlay; never source',
 }
+EXPLICIT_LOCAL={'mount_math':'integration/isolated_blockers/20261109_a/code/mount_math.py'}
 
 
 def standard_library(name):
@@ -89,6 +90,9 @@ def main():
                     elif first=='matched_physics':
                         target='integration/'+module.replace('.','/')+'.py'
                         if target not in selected:errors.append(name+' imports excluded '+target)
+                    elif first in EXPLICIT_LOCAL:
+                        if EXPLICIT_LOCAL[first] not in selected:
+                            errors.append(name+' imports excluded '+EXPLICIT_LOCAL[first])
                     elif first in EXTERNAL or not standard_library(first):
                         external.add(first)
         if p.suffix in ('.sdf','.xml') or p.name=='model.config':ET.fromstring(text);xml+=1

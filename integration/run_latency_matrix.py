@@ -15,6 +15,7 @@ import re
 import math
 
 from launch_phase1 import validate_run_id
+from isolated_imu import isolated_imu_args
 
 
 def fault_write_code(path,row):
@@ -38,6 +39,7 @@ def main():
     parser.add_argument('--normal-duration',type=float,default=35,help='Bounded normal observation window, wall seconds (10..120)')
     parser.add_argument('--camera-trace-library',help='Opt-in passive native timing interposer, absolute /opt/integration path in NEW own camera bridge')
     parser.add_argument('--linux-fault-control',action='store_true',help='Same synchronous fault protocol on the isolated shared Linux volume; no new cache or lease')
+    parser.add_argument('--isolated-imu',action='store_true',help='Opt-in spawned IMU/clock receiver, default unchanged')
     args=parser.parse_args()
     if args.camera_trace_library and not args.camera_trace_library.startswith('/opt/integration/'):
         parser.error('Camera trace library must be under the read-only integration mount')
@@ -132,7 +134,7 @@ def main():
             source_label=prefix+'_'+case+'_vio'
             source=start(source_label,'vio',ros+'exec python3 -B /opt/integration/run_vio_stream.py --vio-dir /opt/vio --output-dir /run/integration/evidence/'+source_label+
                          ' --duration '+str(duration)+' --ground-z .001 --mount-calibration /run/integration/artifacts/mount_calibration.json'+
-                         ' --profile --async-diagnostics --reliable-camera --min-odom-subscribers 2 --min-epoch-subscribers 1 --fault-file '+shlex.quote(control_file))
+                         ' --profile --async-diagnostics --reliable-camera --min-odom-subscribers 2 --min-epoch-subscribers 1 --fault-file '+shlex.quote(control_file)+' '+ ' '.join(isolated_imu_args(args.isolated_imu)))
             beginning=time.monotonic();injected=False;positive=0;injection_utc=None;restart_label=None
             while source.poll() is None:
                 elapsed=time.monotonic()-beginning

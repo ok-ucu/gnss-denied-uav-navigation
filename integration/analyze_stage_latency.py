@@ -10,6 +10,7 @@ import json
 from pathlib import Path
 
 import numpy as np
+from permission_deadlines import timeline
 
 
 def records(path):
@@ -67,11 +68,17 @@ def case_metrics(root,transport_name,source_name):
     enqueue={row['acquisition_ns']:row['end_host_ns'] for row in sensor_stages if row['stage']=='vio_ros_enqueue'}
     callbacks_transport={row['acquisition_ns']:row['callback_entry_host_ns'] for row in odom}
     by_wire={row['fcu_ns']//1000:row for row in mapping}
-    before_egress=[];final_egress=[];slack=[];original_stamps=[];callback_to_wire=[]
+    transport_enqueue={r['acquisition_ns']:r['end_host_ns'] for r in stages if r['stage']=='mavros_enqueue'}
+    before_egress=[];mapping_log_to_read=[];final_egress=[];slack=[];original_stamps=[];callback_to_wire=[]
     for row in wire:
         permission=by_wire.get(row['message']['usec'])
         if permission is None:continue
-        before_egress.append((row['arrival_host_ns']-permission['publish_host_ns'])/1e6)
+        # Mapping audit occurs AFTER ROS publish; it is not enqueue completion.
+        # Missing span means unmeasured latency, never a substituted log time.
+        stamp=permission['acquisition_ns']
+        if stamp in transport_enqueue:
+            before_egress.append((row['arrival_host_ns']-transport_enqueue[stamp])/1e6)
+        mapping_log_to_read.append((row['arrival_host_ns']-permission['publish_host_ns'])/1e6)
         final_egress.append((row['checked_host_ns']-permission['approved_host_ns'])/1e6)
         slack.append((permission['allowed_host_deadline_ns']-row['checked_host_ns'])/1e6)
         original_stamps.append(row['message']['usec']==permission['fcu_ns']//1000)
@@ -98,6 +105,7 @@ def case_metrics(root,transport_name,source_name):
     eligible_rows=[] if reference_stamp is None else [r for r in source_publications if round(r['t']*1e9)>reference_stamp]
     mapped_stamps={r['acquisition_ns'] for r in mapping}
     result=dict(transport=transport_name,source=source_name,source_summary=source_summary,
+                permission_boundaries=timeline(stages,mapping,wire),
                 transport_profile=stage_summary(stages),source_profile=stage_summary(sensor_stages),
                 callback_to_vio_output_wall_ms=quantiles([(outputs[s]-callbacks[s])/1e6 for s in outputs if s in callbacks]),
                 native_camera_arrival_to_ros_callback_wall_ms=quantiles([(callbacks[s]-native[s])/1e6 for s in callbacks if s in native]),
@@ -106,6 +114,7 @@ def case_metrics(root,transport_name,source_name):
                 vio_enqueue_to_transport_callback_wall_ms=quantiles([(callbacks_transport[s]-enqueue[s])/1e6 for s in callbacks_transport if s in enqueue]),
                 acquisition_to_vio_output_sim_ms=quantiles([(row['estimator_output_clock_s']-row['t'])*1000 for row in frames if 'estimator_output_clock_s' in row]),
                 mavros_enqueue_to_udp_read_wall_ms=quantiles(before_egress),
+                mapping_log_to_udp_read_wall_ms=quantiles(mapping_log_to_read),
                 approval_to_final_wire_check_wall_ms=quantiles(final_egress),
                 final_wire_deadline_slack_ms=quantiles(slack),
                 permission_budget_wall_ms=quantiles([(r['allowed_host_deadline_ns']-r['approved_host_ns'])/1e6 for r in mapping]),

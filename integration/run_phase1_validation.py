@@ -10,10 +10,12 @@ from pathlib import Path
 import subprocess
 import time
 from launch_phase1 import validate_run_id
+from isolated_imu import isolated_imu_args
 
 parser=argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--run',type=Path,required=True)
 parser.add_argument('--run-id',required=True)
+parser.add_argument('--isolated-imu',action='store_true')
 args=parser.parse_args()
 RUN=args.run.resolve()
 if not RUN.is_relative_to(Path(__file__).resolve().parent/'phase1_runs'):
@@ -68,7 +70,7 @@ try:
     gate=start('transport_1','transport',patched+'exec python3 -B /opt/integration/phase1_transport.py --run /run/integration --duration 150 --output-name transport_1')
     start('observer','vio',ros+'exec python3 -B /opt/integration/observe_frame_bridge.py --directory /run/integration/evidence/observer --duration 125 --output-topic /integration/phase1/odometry_enu')
     time.sleep(3)
-    source=start('vio','vio',ros+'exec python3 -B /opt/integration/run_vio_stream.py --vio-dir /opt/vio --output-dir /run/integration/evidence/vio --duration 110 --ground-z .001 --mount-calibration /run/integration/artifacts/mount_calibration.json --profile --async-diagnostics --reliable-camera --min-odom-subscribers 2 --min-epoch-subscribers 1 --faults --fault-offset 60')
+    source=start('vio','vio',ros+'exec python3 -B /opt/integration/run_vio_stream.py --vio-dir /opt/vio --output-dir /run/integration/evidence/vio --duration 110 --ground-z .001 --mount-calibration /run/integration/artifacts/mount_calibration.json --profile --async-diagnostics --reliable-camera --min-odom-subscribers 2 --min-epoch-subscribers 1 --faults --fault-offset 60 '+ ' '.join(isolated_imu_args(args.isolated_imu)))
     beginning=time.monotonic();done=set()
     while source.poll() is None:
         elapsed=time.monotonic()-beginning

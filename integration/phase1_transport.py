@@ -59,6 +59,16 @@ def common_watermark(anchors,ros_clock_ns):
     return next((a for a in reversed(anchors) if a['source_ns']<=ros_clock_ns),None)
 
 
+def prepared_firmware_digest(run,identity):
+    if identity.get('runtime_admitted',True) is not True:
+        raise ValueError('Runtime candidate is not admitted; capture transport remains closed')
+    binary=(run/'artifacts/arducopter') if 'firmware_sha256' in identity else Path('/opt/integration/isolated_blockers/20261109_a/evidence/arducopter_patched')
+    digest=hashlib.sha256(binary.read_bytes()).hexdigest()
+    if 'firmware_sha256' in identity and identity['firmware_sha256']!=digest:
+        raise ValueError('Prepared firmware changed')
+    return digest
+
+
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--run',type=Path,required=True)
@@ -74,9 +84,10 @@ def main():
     fault_control=FaultFile(a.fault_file)
     if a.initialize_capture_reference is not None:uuid.UUID(a.initialize_capture_reference)
     (out/'pid').write_text(str(os.getpid()))
-    binary=Path('/opt/integration/isolated_blockers/20261109_a/evidence/arducopter_patched')
-    digest=hashlib.sha256(binary.read_bytes()).hexdigest()
     identity=json.loads((a.run/'artifacts/run_identity.json').read_text())
+    # New preparation binds the exact copied firmware. Historical runs keep
+    # their legacy path; neither path admits an unknown hash to the mapper.
+    digest=prepared_firmware_digest(a.run,identity)
     mapping=AppliedClockMapping(identity['clock_epoch'],digest)
     state_directory=Path(os.environ.get('PHASE1_GUARD_STATE_DIR',str(a.run/'state')))
     state_path=state_directory/'capture_reference.json'
