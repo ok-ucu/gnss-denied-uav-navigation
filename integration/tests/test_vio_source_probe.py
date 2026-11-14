@@ -1,12 +1,20 @@
 """Synthetic OFF/ON/OFF evidence regressions; NOT a live ROS/GPU verification."""
 import json
+import os
 from pathlib import Path
+import re
+import socket
+import subprocess
+import sys
 import tempfile
+import types
 import unittest
 from unittest.mock import patch
 
+import vio_source_probe as probe
 from vio_source_probe import analyze, stats, hardware_renderer
 from run_vio_stream import clock_status
+from linux_gpu.verified_disarmed import load_codec
 
 
 class SourceProbeTests(unittest.TestCase):
@@ -163,6 +171,147 @@ class SourceProbeTests(unittest.TestCase):
     def test_legacy_witness_without_expected_disarmed_validation_cannot_pass(self):
         self.write('witness.json',dict(start=75,end=172,failure=[]))
         self.assertIn('expected_disarmed_heartbeat_evidence',self.failed_checks())
+
+
+class HeartbeatWitnessTests(unittest.TestCase):
+    """Actual witness/guard and shell cleanup, with synthetic sockets/Gazebo/PIDs."""
+    @classmethod
+    def setUpClass(cls):cls.wire=load_codec()
+
+    def setUp(self):
+        temp=tempfile.TemporaryDirectory();self.addCleanup(temp.cleanup)
+        self.root=Path(temp.name)
+
+    def run_witness(self,heartbeat_times):
+        class Clock:
+            now=0.
+            def monotonic(self):return self.now
+        clock=Clock();ns=types.SimpleNamespace
+        wire=self.wire
+        packet=wire.MAVLink_heartbeat_message(2,3,0,0,3,3).pack(wire.MAVLink(None,srcSystem=1,srcComponent=1))
+        directory=self.root
+        class Native:
+            unsubscribed=[]
+            def subscribe(self,kind,topic,callback):
+                # Frozen simulation stamps deliberately cannot drive heartbeat freshness.
+                stamp=ns(sec=98765,nsec=0)
+                if topic==probe.CAMERA:
+                    callback(ns(header=ns(stamp=stamp),width=640,height=480,
+                                data=bytes(640*480*3),pixel_format_type=3))
+                elif topic==probe.IMU:callback(ns(header=ns(stamp=stamp)))
+                else:callback(ns(sim=stamp))
+                return True
+            def unsubscribe(self,topic):
+                # Failure notification must precede teardown/large log export.
+                assert (directory/'witness.failed.json').exists()
+                self.unsubscribed.append(topic)
+        native=Native()
+        class ReceiveOnly:
+            closed=False
+            calls=0
+            def __enter__(self):return self
+            def __exit__(self,*_):self.closed=True
+            def settimeout(self,value):assert value==.1
+            def recv(self,*_):
+                self.calls+=1;clock.now+=.25
+                if clock.now in heartbeat_times:return packet
+                raise socket.timeout()
+            def send(self,*_):raise AssertionError('Witness transmitted data')
+            def sendall(self,*_):raise AssertionError('Witness transmitted data')
+        stream=ReceiveOnly()
+        modules={name:types.ModuleType(name) for name in ('gz','gz.transport13','gz.msgs10',
+            'gz.msgs10.image_pb2','gz.msgs10.clock_pb2','gz.msgs10.imu_pb2')}
+        modules['gz.transport13'].Node=lambda:native
+        modules['gz.msgs10.image_pb2'].Image=object
+        modules['gz.msgs10.clock_pb2'].Clock=object
+        modules['gz.msgs10.imu_pb2'].IMU=object
+        with patch.dict(sys.modules,modules), \
+             patch.dict(os.environ,{'GNSS_EXPECTED_SYSTEM':'1','GNSS_EXPECTED_COMPONENT':'1'}), \
+             patch.object(probe.socket,'create_connection',return_value=stream), \
+             patch.object(probe.time,'monotonic',clock.monotonic), \
+             patch.object(probe.time,'sleep'),patch.object(probe.signal,'signal'), \
+             patch.object(probe,'resource_sample',return_value=dict(kind='resources',host=0,cpu_stat='fixture')):
+            result=probe.witness(self.root)
+        self.assertEqual(result,1);self.assertTrue(stream.closed)
+        self.assertEqual(set(native.unsubscribed),{probe.CAMERA,probe.IMU,'/clock'})
+        marker=json.loads((self.root/'witness.failed.json').read_text())
+        summary=json.loads((self.root/'witness.json').read_text())
+        self.assertEqual(marker['status'],'FAIL');self.assertTrue(summary['failure'])
+        return clock.now,marker,summary
+
+    def shell_cleanup(self,failed_pid='none'):
+        # Run ONLY the real function definitions, not --probe or the launcher.
+        text=(Path(probe.ROOT)/'run_vio_source_probe.sh').read_text()
+        def function(name):
+            return re.search(r'^'+name+r'\(\) \{\n.*?^\}',text,re.M|re.S).group(0)
+        harness='''set -euo pipefail
+run="$1"; here=/fixture-only; helper="$here/vio_source_probe.py"
+source_pid=404; observer_pid=303; camera_pid=202; witness_pid=101
+fixture_owned=1; stopping=0; failed_pid="$2"
+kill() {
+  if [[ "$1" == -0 ]]; then
+    [[ "$stopping" == 0 && "$2" != "$failed_pid" ]]
+  else
+    printf 'kill %s\\n' "$*" >> "$run/actions.log"
+    stopping=1
+  fi
+}
+wait() { [[ "$1" != 101 ]] || return 1; return 143; }
+sleep() { :; }
+python3() { printf 'python %s\\n' "$*" >> "$run/actions.log"; }
+disarmed() { printf 'disarmed %s\\n' "$1" >> "$run/actions.log"; }
+'''+function('cleanup')+'\n'+function('healthy')+'''
+trap cleanup EXIT
+healthy
+echo OBSERVATION_CONTINUED >> "$run/actions.log"
+'''
+        result=subprocess.run(['bash','-c',harness,'fixture',str(self.root),failed_pid],capture_output=True,text=True,timeout=5)
+        self.assertEqual(result.returncode,1,result.stderr)
+        actions=(self.root/'actions.log').read_text()
+        self.assertNotIn('OBSERVATION_CONTINUED',actions)
+        for pid in ('404','303','202','101'):self.assertIn('kill -TERM -- -'+pid,actions)
+        self.assertIn('vio_ground_fixture.py remove',actions)
+        self.assertIn('disarmed disarmed-after',actions)
+        self.assertIn('vio_source_probe.py analyze',actions)
+        self.assertEqual((self.root/'collection.exit').read_text().strip(),'1')
+        self.assertEqual((self.root/'launcher.exit').read_text().strip(),'1')
+
+    def test_post_ready_silence_fails_on_monotonic_timeout_and_triggers_cleanup(self):
+        now,marker,summary=self.run_witness({1,2,3})
+        ready=json.loads((self.root/'witness.ready.json').read_text())
+        self.assertEqual(ready['host'],3)
+        self.assertEqual(now,6.25);self.assertEqual(marker['host'],now)
+        self.assertIn('heartbeat stale >3s',marker['reason'])
+        self.assertEqual(summary['verified_heartbeats'],3)
+        # Even while the witness PID still appears alive, the failure marker
+        # must end observation and invoke owned-process/fixture cleanup.
+        self.shell_cleanup()
+        self.assertEqual(json.loads((self.root/'witness.failed.json').read_text()),marker)
+
+    def test_no_heartbeat_before_ready_uses_existing_ten_second_guard(self):
+        now,marker,_=self.run_witness(set())
+        self.assertEqual(now,10.25)
+        self.assertIn('within 10s',marker['reason'])
+        self.assertFalse((self.root/'witness.ready.json').exists())
+
+    def test_incomplete_readiness_does_not_disable_three_second_freshness(self):
+        now,marker,_=self.run_witness({1})
+        self.assertEqual(now,4.25)
+        self.assertIn('heartbeat stale >3s',marker['reason'])
+        self.assertFalse((self.root/'witness.ready.json').exists())
+
+    def test_late_heartbeat_cannot_restore_readiness_after_outage(self):
+        now,marker,summary=self.run_witness({1,2,3,6.25})
+        self.assertEqual(now,6.25);self.assertEqual(summary['verified_heartbeats'],3)
+        self.assertIn('heartbeat stale >3s',marker['reason'])
+
+    def test_dead_witness_or_camera_cannot_be_masked_by_live_observer(self):
+        for pid in ('101','202'):
+            with self.subTest(pid=pid):
+                # Fresh output per independent shell fixture.
+                temp=tempfile.TemporaryDirectory();self.addCleanup(temp.cleanup)
+                self.root=Path(temp.name)
+                self.shell_cleanup(pid)
 
 
 if __name__=='__main__':unittest.main()

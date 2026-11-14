@@ -67,6 +67,7 @@ fixture_owned=1
 setsid python3 -B "$helper" witness --directory "$run" > "$run/witness.log" 2>&1 &
 witness_pid=$!
 for unused in {1..150}; do
+  [[ ! -f "$run/witness.failed.json" ]] || exit 1
   kill -0 "$witness_pid" || exit 1
   [[ ! -f "$run/witness.ready.json" ]] || break
   sleep .1
@@ -76,7 +77,9 @@ setsid /opt/ros/jazzy/lib/ros_gz_bridge/parameter_bridge "$CAMERA@sensor_msgs/ms
 camera_pid=$!
 mark() { python3 -B "$helper" mark --directory "$run" --phase "$1"; }
 healthy() {
-  kill -0 "$witness_pid" && kill -0 "$camera_pid"
+  [[ ! -f "$run/witness.failed.json" ]] || return 1
+  kill -0 "$witness_pid" || return 1
+  kill -0 "$camera_pid" || return 1
   [[ -z "$observer_pid" ]] || kill -0 "$observer_pid"
 }
 observe_for() {

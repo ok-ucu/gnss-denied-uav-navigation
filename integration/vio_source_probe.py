@@ -142,11 +142,11 @@ def witness(directory):
                     guard.feed(data, time.monotonic())
                 except socket.timeout:
                     pass
-                heartbeat_ready = guard.ready(time.monotonic())
+                guard.assert_fresh(time.monotonic())  # Always, including after readiness and recv timeout.
                 if time.monotonic() >= next_resource:
                     resources.append(resource_sample())
                     next_resource = time.monotonic()+.5
-                if not ready and heartbeat_ready and {'camera','clock','imu'} <= seen:
+                if not ready and guard.ready(time.monotonic()) and {'camera','clock','imu'} <= seen:
                     save(directory/'witness.ready.json', dict(host=time.monotonic()))
                     ready = True
                 if not ready and time.monotonic()-started > 10:
@@ -155,6 +155,9 @@ def witness(directory):
                 failure.append('Native witness duration bound reached')
     except Exception as exc:
         failure.append(str(exc))
+        stopped.set()
+        # Notify the parent before potentially large evidence files are flushed.
+        save(directory/'witness.failed.json',dict(status='FAIL',host=time.monotonic(),reason=str(exc)))
     finally:
         for topic in (CAMERA, IMU, '/clock'):
             node.unsubscribe(topic)
