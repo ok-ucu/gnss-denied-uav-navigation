@@ -53,6 +53,24 @@ class VerifiedDisarmedTests(unittest.TestCase):
         self.assertFalse(guard.ready(2))
         with self.assertRaisesRegex(RuntimeError,'stale'):guard.feed(self.packet(),3.001)
 
+    def test_heartbeat_loss_after_readiness_fails_without_new_packets(self):
+        guard = HeartbeatGuard(1, 1, 0)
+
+        # Three valid heartbeats establish readiness over two seconds.
+        for t in (0, 1, 2):
+            guard.feed(self.packet(), t)
+
+        self.assertTrue(guard.ready(2))
+        self.assertTrue(guard.ready(3))
+
+        # No new packets arrive. The heartbeat becomes stale.
+        with self.assertRaisesRegex(RuntimeError, "stale"):
+            guard.ready(5.001)
+
+        # A late heartbeat must not silently restore readiness.
+        with self.assertRaises(RuntimeError):
+            guard.feed(self.packet(), 5.002)
+
     def test_invalid_ids_time_and_same_chunk_repeats_cannot_establish_span(self):
         for system,component in ((0,1),(1,256),(True,1)):
             with self.assertRaises(ValueError):HeartbeatGuard(system,component,0)

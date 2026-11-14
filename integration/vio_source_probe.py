@@ -142,8 +142,11 @@ def witness(directory):
                     guard.feed(data, time.monotonic())
                 except socket.timeout:
                     pass
-                heartbeat_ready = guard.ready(time.monotonic())
-                if time.monotonic() >= next_resource:
+                # Check heartbeat freshness on every iteration, even without packets.
+                now = time.monotonic()
+                guard.assert_fresh(now)
+                heartbeat_ready = guard.ready(now)
+                if now >= next_resource:
                     resources.append(resource_sample())
                     next_resource = time.monotonic()+.5
                 if not ready and heartbeat_ready and {'camera','clock','imu'} <= seen:

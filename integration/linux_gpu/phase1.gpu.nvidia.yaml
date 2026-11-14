@@ -4,3 +4,5 @@ services:
     environment:
       LIBGL_ALWAYS_SOFTWARE: '0'
       NVIDIA_DRIVER_CAPABILITIES: graphics,utility,compute
+    volumes:
+      - /usr/share/glvnd/egl_vendor.d/10_nvidia.json:/usr/share/glvnd/egl_vendor.d/10_nvidia.json:ro

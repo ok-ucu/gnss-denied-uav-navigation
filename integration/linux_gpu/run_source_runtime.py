@@ -96,18 +96,41 @@ def renderer_preflight(physics, egl_vendor, call):
         call(['docker','exec',physics,*command],label,remaining)
 
 
+def check_host_egl_vendor(filename):
+    """Read only; never create a missing bind source or accept an empty descriptor."""
+    path=Path(filename)
+    try:
+        if not path.is_file():raise FileNotFoundError(str(path))
+        text=path.read_text()
+    except FileNotFoundError as exc:
+        raise ValueError('Host NVIDIA EGL vendor JSON missing or not a regular file: '+str(path)) from exc
+    except (OSError,UnicodeError) as exc:
+        raise ValueError('Host NVIDIA EGL vendor JSON unreadable: '+str(path)+': '+str(exc)) from exc
+    def invalid_constant(value):raise ValueError('Non-JSON constant: '+value)
+    try:
+        descriptor=json.loads(text,parse_constant=invalid_constant)
+    except ValueError as exc:
+        raise ValueError('Host NVIDIA EGL vendor JSON invalid: '+str(path)+': '+str(exc)) from exc
+    icd=descriptor.get('ICD') if isinstance(descriptor,dict) else None
+    if not isinstance(icd,dict) or not isinstance(icd.get('library_path'),str) or not icd['library_path'].strip():
+        raise ValueError('Host NVIDIA EGL vendor JSON invalid: require ICD.library_path: '+str(path))
+
+
 def prepare(run_id, camera_image, fcu_image, egl_vendor, domain):
     if (not PurePosixPath(egl_vendor).is_absolute() or '..' in PurePosixPath(egl_vendor).parts
             or not egl_vendor.endswith('.json') or any(c not in '/._-abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789' for c in egl_vendor)):
         raise ValueError('Require explicit absolute NVIDIA EGL vendor JSON path inside container')
     if type(domain) is not int or not 1 <= domain <= 232:
         raise ValueError('Require dedicated ROS domain 1..232')
+    check_host_egl_vendor(egl_vendor)
     run = run_camera.prepare(run_id, 'nvidia', camera_image, fcu_image, 30)
     prepare_vio.export(run/'artifacts/vio')  # Separate pinned dependency; never vio/.
     # Identity of this NEW FCU is explicit, not guessed from the first sender.
     with (run/'artifacts/camera.parm').open('a') as out:
         out.write('SYSID_THISMAV 1\n')
-    override = dict(services=dict(physics=dict(gpus='all', environment={
+    override = dict(services=dict(physics=dict(gpus='all', volumes=[dict(
+        type='bind',source=egl_vendor,target=egl_vendor,read_only=True,
+        bind=dict(create_host_path=False))], environment={
         'LIBGL_ALWAYS_SOFTWARE':'0', 'NVIDIA_VISIBLE_DEVICES':'all',
         'NVIDIA_DRIVER_CAPABILITIES':'graphics,utility,compute',
         '__EGL_VENDOR_LIBRARY_FILENAMES':egl_vendor, '__GLX_VENDOR_LIBRARY_NAME':'nvidia',
@@ -154,6 +177,9 @@ def validate_runtime(records, plan, run):
         if (mounts['/opt/integration']['Source']!=str(ROOT) or mounts['/opt/integration']['RW'] or
                 mounts['/run/integration']['Source']!=str(run) or not mounts['/run/integration']['RW']):
             raise RuntimeError('Wrong source/state mounts')
+    vendor=next((m for m in physics['Mounts'] if m['Destination']==plan['egl_vendor']),None)
+    if not vendor or vendor.get('Type')!='bind' or vendor['Source']!=plan['egl_vendor'] or vendor['RW'] is not False:
+        raise RuntimeError('Missing or non-read-only physics NVIDIA EGL vendor JSON bind mount')
     env=dict(v.split('=',1) for v in physics['Config']['Env'])
     if any(env.get(k)!=v for k,v in {
             'GZ_PARTITION':plan['partition'],'ROS_DOMAIN_ID':str(plan['ros_domain']),
@@ -193,6 +219,8 @@ def stop_owned(names, project, evidence, call):
 
 
 def execute(run, plan, compose, run_probe):
+    # Recheck immediately before Docker operations; preparation is not a lease.
+    check_host_egl_vendor(plan['egl_vendor'])
     names=plan['names'];physics,fcu=names;project=plan['partition']
     # Pre-existing names/networks cause HOLD before any service is started.
     for kind,name in [('container',n) for n in names]+[('network',project)]:
@@ -294,7 +322,7 @@ def main():
     parser.add_argument('--run-id',required=True)
     parser.add_argument('--camera-image',default='gnss-phase1-camera:linux-gpu')
     parser.add_argument('--fcu-image',default='gnss-phase1-sitl:linux-gpu')
-    parser.add_argument('--egl-vendor-file',required=True)
+    parser.add_argument('--egl-vendor-file',required=True,help='Readable host NVIDIA EGL JSON, bound read-only at the same container path')
     parser.add_argument('--ros-domain',type=int,default=123)
     parser.add_argument('--execute',action='store_true')
     parser.add_argument('--probe',action='store_true',help='After startup PASS invoke the existing OFF/ON/OFF probe')

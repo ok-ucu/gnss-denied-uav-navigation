@@ -121,7 +121,7 @@ def main():
     (run / 'PREPARATION.json').write_text(json.dumps(evidence, indent=2) + '\n')
     compose = ['docker', 'compose', '--env-file', str(env_file), '-f', str(INTEGRATION / 'phase1.compose.yaml')]
     if args.gpu_mode!='software':
-        compose+=['-f',str(INTEGRATION/'linux_gpu'/('phase1.gpu-'+args.gpu_mode+'.yaml'))]
+        compose+=['-f',str(INTEGRATION/'linux_gpu'/('phase1.gpu.'+args.gpu_mode+'.yaml'))]
     config = subprocess.check_output(compose + ['config'], text=True)
     (run / 'artifacts/resolved-compose.yaml').write_text(config)
     print(run, flush=True)
