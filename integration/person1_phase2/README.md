@@ -110,3 +110,32 @@ This script does not:
 - Modify other team members' code
 
 Phase 1 remains on HOLD.
+
+## GPS reference trajectory (Part 2)
+
+The gps_reference.py script converts exported GPS coordinates
+into a local East-North-Up (ENU) reference trajectory.
+
+Requirements: Python 3 and pyproj.
+
+Usage:
+  python gps_reference.py gps.csv gps_reference.csv
+
+Output:
+- x_m: East displacement in meters
+- y_m: North displacement in meters
+- z_m: Up displacement in meters
+- Original autopilot timestamps and GPS quality metadata
+
+The first valid GPS fix defines the ENU origin.
+Invalid GPS fixes are excluded.
+
+Limitations:
+- Timestamps use the ArduPilot clock, not synchronized VIO time.
+- GPS reference is not ground truth.
+- Vertical coordinates assume WGS84 ellipsoidal heights;
+  ArduPilot altitude may use a different vertical datum.
+- A moving flight is required to validate trajectory comparison.
+
+Tests:
+  python -m unittest discover -s integration/person1_phase2 -p test_gps_reference.py -v

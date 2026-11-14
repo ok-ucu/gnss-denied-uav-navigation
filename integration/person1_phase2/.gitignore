@@ -9,3 +9,6 @@ __pycache__/
 # Temporary or incomplete exports
 *.tmp
 *.partial
+
+# Local Python virtual environment
+.venv/
