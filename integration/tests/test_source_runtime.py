@@ -1,5 +1,6 @@
 """Offline startup/ownership contracts. Never starts Docker/Gazebo/SITL."""
 import copy
+import io
 import json
 from pathlib import Path
 import subprocess
@@ -107,6 +108,150 @@ class SourceRuntimeTests(unittest.TestCase):
             result=json.loads((root/'evidence/SOURCE_RUNTIME_RESULT.json').read_text())
             self.assertEqual(result['startup'],'BLOCKED');self.assertEqual(result['vio_source'],'NOT TESTED')
             self.assertFalse(result['forwarding_enabled'])
+
+
+class RendererPreflightTests(unittest.TestCase):
+    """Run the actual subcheck programs on temporary files, never in Docker."""
+    def setUp(self):
+        temp=tempfile.TemporaryDirectory();self.addCleanup(temp.cleanup)
+        self.root=Path(temp.name)
+        self.paths={name:self.root/name for name in ('setup.bash','vendor.json','plugin.txt',
+                    'actual.sdf','expected.sdf','identity.txt','ogre.log')}
+        self.paths['setup.bash'].write_text('export ROS_DISTRO=jazzy\n')
+        self.paths['vendor.json'].write_text('{}\n')
+        self.paths['plugin.txt'].write_text('f116b03552d05c8d0b0bed5ed67033a1183121d1\n')
+        for name in ('actual.sdf','expected.sdf'):self.paths[name].write_text('<sdf/>\n')
+        self.paths['identity.txt'].write_text('vendor=NVIDIA Corporation\nrenderer=Quadro fixture\nversion=fixture\n')
+        self.paths['ogre.log'].write_text('GL_RENDERER = Quadro fixture\n')
+        self.mapping={
+            '/opt/ros/jazzy/setup.bash':self.paths['setup.bash'],
+            '/opt/phase1/plugin-commit.txt':self.paths['plugin.txt'],
+            '/opt/ardupilot_gazebo/models/gimbal_small_3d/model.sdf':self.paths['actual.sdf'],
+            '/run/integration/evidence/integrated_gimbal_original.sdf':self.paths['expected.sdf'],
+            '/tmp/render_gl_identity.txt':self.paths['identity.txt'],
+            '/root/.gz/rendering/ogre2.log':self.paths['ogre.log'],
+        }
+
+    def run_checks(self,name):
+        self.evidence=self.root/name;self.evidence.mkdir()
+        self.audit=io.StringIO();self.labels=[]
+        def call(cmd,label,timeout):
+            self.assertEqual(cmd[:3],['docker','exec','fixture-only'])
+            self.assertGreater(timeout,0);self.assertLessEqual(timeout,20)
+            command=list(cmd[3:])
+            for i,arg in enumerate(command):
+                for original,fixture in self.mapping.items():arg=arg.replace(original,str(fixture))
+                command[i]=arg
+            # Do not wait10s for a deliberately missing fixture. Production
+            # command and overall-budget values are checked separately below.
+            if label=='source-renderer-identity':command[-1]='0'
+            self.labels.append(label)
+            runtime.recorded_command(self.evidence,self.audit,command,label,timeout)
+        runtime.renderer_preflight('fixture-only',str(self.paths['vendor.json']),call)
+
+    def records(self):return [json.loads(line) for line in self.audit.getvalue().splitlines()]
+
+    def test_success_has_six_separate_streams_statuses_and_monotonic_spans(self):
+        self.run_checks('success')
+        self.assertEqual(len(self.records()),6)
+        self.assertEqual(len(set(self.labels)),6)
+        for r in self.records():
+            self.assertEqual(r['exit'],0)
+            self.assertGreaterEqual(r['host_end'],r['host_start'])
+            self.assertTrue((self.evidence/r['stdout']).is_file())
+            self.assertTrue((self.evidence/r['stderr']).is_file())
+        checks=dict(runtime.renderer_checks('/vendor.json'))
+        self.assertEqual(checks['source-renderer-identity'][-1],'10')
+        self.assertEqual(checks['source-renderer-ogre-log'][-1],'0')
+
+    def test_missing_vendor_and_dangling_symlink_fail_with_target_evidence(self):
+        vendor=self.paths['vendor.json'];vendor.unlink()
+        for kind in ('missing','dangling'):
+            with self.subTest(kind=kind):
+                if kind=='dangling':vendor.symlink_to('absent-nvidia.json')
+                with self.assertRaisesRegex(RuntimeError,'source-renderer-egl-vendor failed'):
+                    self.run_checks(kind)
+                r=self.records()[-1];self.assertEqual(r['exit'],1)
+                info=json.loads((self.evidence/r['stdout']).read_text())
+                self.assertFalse(info['is_file']);self.assertEqual(info['symlink'],kind=='dangling')
+                if kind=='dangling':self.assertEqual(info['symlink_target'],'absent-nvidia.json')
+                self.assertIn('vendor JSON missing',(self.evidence/r['stderr']).read_text())
+                self.assertEqual(len(self.labels),2)  # No provenance/render/admission after failure.
+
+    def test_valid_vendor_symlink_reports_resolved_target(self):
+        vendor=self.paths['vendor.json'];target=self.root/'real-vendor.json'
+        vendor.rename(target);vendor.symlink_to(target.name)
+        self.run_checks('symlink')
+        r=self.records()[1];info=json.loads((self.evidence/r['stdout']).read_text())
+        self.assertTrue(info['is_file']);self.assertTrue(info['symlink'])
+        self.assertEqual(info['resolved'],str(target.resolve()))
+
+    def test_mismatched_plugin_commit_stops_before_sdf_and_reports_actual(self):
+        self.paths['plugin.txt'].write_text('unexpected-commit\n')
+        with self.assertRaisesRegex(RuntimeError,'source-renderer-plugin-provenance failed'):
+            self.run_checks('plugin')
+        r=self.records()[-1]
+        self.assertEqual(r['exit'],1);self.assertEqual(len(self.labels),3)
+        self.assertIn('unexpected-commit',(self.evidence/r['stdout']).read_text())
+        self.assertIn('plugin commit mismatch',(self.evidence/r['stderr']).read_text())
+
+    def test_plugin_check_does_not_normalize_spaces_or_crlf_into_valid_pin(self):
+        pin=b'f116b03552d05c8d0b0bed5ed67033a1183121d1'
+        for i,data in enumerate((b' '+pin+b'\n',pin+b' \n',pin+b'\r\n')):
+            with self.subTest(data=data):
+                self.paths['plugin.txt'].write_bytes(data)
+                with self.assertRaisesRegex(RuntimeError,'source-renderer-plugin-provenance failed'):
+                    self.run_checks('plugin-whitespace-'+str(i))
+
+    def test_sdf_mismatch_preserves_cmp_diagnostic_and_exit_status(self):
+        self.paths['actual.sdf'].write_text('<changed/>\n')
+        with self.assertRaisesRegex(RuntimeError,'source-renderer-gimbal-sdf failed'):
+            self.run_checks('sdf')
+        r=self.records()[-1]
+        self.assertEqual(r['exit'],1);self.assertEqual(len(self.labels),4)
+        self.assertTrue((self.evidence/r['stdout']).read_text() or (self.evidence/r['stderr']).read_text())
+
+    def test_missing_or_empty_identity_and_ogre_log_fail_closed(self):
+        for filename,label in (('identity.txt','source-renderer-identity'),('ogre.log','source-renderer-ogre-log')):
+            original=self.paths[filename].read_text()
+            for mode in ('missing','empty'):
+                with self.subTest(file=filename,mode=mode):
+                    if mode=='missing':self.paths[filename].unlink()
+                    else:self.paths[filename].write_text('')
+                    with self.assertRaisesRegex(RuntimeError,label+' failed'):
+                        self.run_checks(filename+'-'+mode)
+                    r=self.records()[-1];self.assertEqual(r['exit'],1)
+                    self.assertIn('evidence missing or empty',(self.evidence/r['stderr']).read_text())
+                    self.assertEqual(self.labels[-1],label)
+            self.paths[filename].write_text(original)
+
+    def test_ros_setup_failure_has_own_reason_and_keeps_stderr(self):
+        self.paths['setup.bash'].write_text('echo setup-started\necho setup-broken >&2\nreturn 7\n')
+        with self.assertRaisesRegex(RuntimeError,'source-renderer-ros-environment failed .exit 7'):
+            self.run_checks('ros')
+        r=self.records()[-1];self.assertEqual(r['exit'],7);self.assertEqual(len(self.labels),1)
+        self.assertIn('setup-started',(self.evidence/r['stdout']).read_text())
+        self.assertIn('setup-broken',(self.evidence/r['stderr']).read_text())
+
+    def test_timeout_preserves_partial_streams_without_fabricated_exit_status(self):
+        out=self.root/'timeout';out.mkdir();audit=io.StringIO()
+        def timeout(cmd,**kwargs):
+            kwargs['stdout'].write('partial stdout\n');kwargs['stderr'].write('partial stderr\n')
+            raise subprocess.TimeoutExpired(cmd,20)
+        with patch.object(runtime.subprocess,'run',side_effect=timeout):
+            with self.assertRaisesRegex(RuntimeError,'source-renderer-identity failed: TimeoutExpired'):
+                runtime.recorded_command(out,audit,['fixture-only'],'source-renderer-identity',20)
+        row=json.loads(audit.getvalue())
+        self.assertIsNone(row['exit']);self.assertTrue(row['timed_out'])
+        self.assertGreaterEqual(row['host_end'],row['host_start'])
+        self.assertEqual((out/row['stdout']).read_text(),'partial stdout\n')
+        self.assertEqual((out/row['stderr']).read_text(),'partial stderr\n')
+
+    def test_total_renderer_budget_remains_twenty_seconds(self):
+        call=lambda *_:None
+        with patch.object(runtime.time,'monotonic',side_effect=[100,120.001]):
+            with self.assertRaisesRegex(RuntimeError,'source-renderer-ros-environment blocked.*20s'):
+                runtime.renderer_preflight('fixture-only','/vendor.json',call)
 
 
 if __name__=='__main__':unittest.main()

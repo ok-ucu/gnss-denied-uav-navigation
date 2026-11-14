@@ -18,6 +18,84 @@ sys.path.insert(0, str(ROOT))
 from linux_gpu import run_camera, prepare_vio
 
 
+def recorded_command(evidence, audit, cmd, label, timeout=30):
+    """Keep separate streams, including partial output on timeout/launch failure."""
+    stdout=label+'.txt';stderr=label+'.stderr.txt'
+    record=dict(command=cmd,label=label,host_start=time.monotonic(),exit=None,
+                stdout=stdout,stderr=stderr)
+    try:
+        with (evidence/stdout).open('x') as out, (evidence/stderr).open('x') as err:
+            answer=subprocess.run(cmd,stdout=out,stderr=err,timeout=timeout)
+            record['exit']=answer.returncode
+    except Exception as exc:
+        record['error']=type(exc).__name__+': '+str(exc)
+        record['timed_out']=isinstance(exc,subprocess.TimeoutExpired)
+        raise RuntimeError(label+' failed: '+record['error']+'; STOP, evidence retained') from exc
+    finally:
+        record['host_end']=time.monotonic()
+        audit.write(json.dumps(record)+'\n');audit.flush()
+    if answer.returncode:
+        raise RuntimeError(f'{label} failed (exit {answer.returncode}); STOP, evidence retained')
+
+
+def renderer_checks(egl_vendor):
+    """One operation per label; file checks need no implicit ROS setup shell."""
+    vendor_check='''import json, os, sys
+from pathlib import Path
+p=Path(sys.argv[1])
+print(json.dumps(dict(path=str(p), symlink=p.is_symlink(),
+    symlink_target=os.readlink(p) if p.is_symlink() else None,
+    resolved=str(p.resolve()), is_file=p.is_file())), flush=True)
+if not p.is_file():
+    raise SystemExit('NVIDIA EGL vendor JSON missing or symlink target unavailable: '+str(p))
+'''
+    plugin_check='''import json, sys
+from pathlib import Path
+p=Path(sys.argv[1]);actual=p.read_bytes().rstrip(b'\\n').decode('ascii');expected=sys.argv[2]
+print(json.dumps(dict(path=str(p), actual=actual, expected=expected)), flush=True)
+if actual != expected:
+    raise SystemExit('ArduPilot Gazebo plugin commit mismatch')
+'''
+    availability_check='''import json, sys, time
+from pathlib import Path
+p=Path(sys.argv[1]);deadline=time.monotonic()+float(sys.argv[2])
+def ready():
+    return p.is_file() and p.stat().st_size>0
+while not ready() and time.monotonic()<deadline:
+    time.sleep(.1)
+print(json.dumps(dict(path=str(p), is_file=p.is_file(),
+    bytes=p.stat().st_size if p.is_file() else None)), flush=True)
+if not ready():
+    raise SystemExit('Required renderer evidence missing or empty: '+str(p))
+sys.stdout.flush()
+sys.stdout.buffer.write(p.read_bytes())
+'''
+    return [
+        ('source-renderer-ros-environment',['bash','-lc',
+            'set -e; source /opt/ros/jazzy/setup.bash; printf "ROS environment setup completed\\n"']),
+        ('source-renderer-egl-vendor',['python3','-B','-c',vendor_check,egl_vendor]),
+        ('source-renderer-plugin-provenance',['python3','-B','-c',plugin_check,
+            '/opt/phase1/plugin-commit.txt','f116b03552d05c8d0b0bed5ed67033a1183121d1']),
+        ('source-renderer-gimbal-sdf',['cmp',
+            '/opt/ardupilot_gazebo/models/gimbal_small_3d/model.sdf',
+            '/run/integration/evidence/integrated_gimbal_original.sdf']),
+        ('source-renderer-identity',['python3','-B','-c',availability_check,
+            '/tmp/render_gl_identity.txt','10']),
+        ('source-renderer-ogre-log',['python3','-B','-c',availability_check,
+            '/root/.gz/rendering/ogre2.log','0']),
+    ]
+
+
+def renderer_preflight(physics, egl_vendor, call):
+    # Keep the original 20s overall command budget and 10s identity wait.
+    deadline=time.monotonic()+20
+    for label,command in renderer_checks(egl_vendor):
+        remaining=deadline-time.monotonic()
+        if remaining<=0:
+            raise RuntimeError(label+' blocked: renderer preflight 20s budget exhausted')
+        call(['docker','exec',physics,*command],label,remaining)
+
+
 def prepare(run_id, camera_image, fcu_image, egl_vendor, domain):
     if (not PurePosixPath(egl_vendor).is_absolute() or '..' in PurePosixPath(egl_vendor).parts
             or not egl_vendor.endswith('.json') or any(c not in '/._-abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789' for c in egl_vendor)):
@@ -125,17 +203,7 @@ def execute(run, plan, compose, run_probe):
                 startup='BLOCKED',vio_source='NOT TESTED',cleanup='NOT TESTED')
     audit=(evidence/'source-runtime-commands.jsonl').open('x')
     def call(cmd,label,timeout=30):
-        record=dict(command=cmd,label=label,host_start=time.monotonic())
-        with (evidence/(label+'.txt')).open('x') as out:
-            try:
-                answer=subprocess.run(cmd,stdout=out,stderr=subprocess.STDOUT,timeout=timeout)
-                record['exit']=answer.returncode
-            except Exception as exc:
-                record['error']=str(exc)
-                raise
-            finally:
-                record['host_end']=time.monotonic();audit.write(json.dumps(record)+'\n');audit.flush()
-        if answer.returncode:raise RuntimeError(label+' failed; STOP, evidence retained')
+        recorded_command(evidence,audit,cmd,label,timeout)
     def shell(code,label,timeout=30):
         call(['docker','exec',physics,'bash','-lc','set -e; source /opt/ros/jazzy/setup.bash; '+code],label,timeout)
     attempted=False
@@ -168,11 +236,7 @@ def execute(run, plan, compose, run_probe):
             'set -e; test "$(cat /opt/phase1/ardupilot-commit.txt)" = 9279df6191a772c098b2e4797c95ac954f258d88; '
             'sha256sum -c /opt/phase1/firmware.sha256; cat /opt/phase1/parser-tests.txt; '
             "grep -F '[  PASSED  ] 5 tests.' /opt/phase1/parser-tests.txt"], 'source-firmware')
-        shell('test -f '+shlex.quote(plan['egl_vendor'])+'; '
-            'test "$(cat /opt/phase1/plugin-commit.txt)" = f116b03552d05c8d0b0bed5ed67033a1183121d1; '
-            'cmp /opt/ardupilot_gazebo/models/gimbal_small_3d/model.sdf /run/integration/evidence/integrated_gimbal_original.sdf; '
-            'for i in {1..100}; do test ! -s /tmp/render_gl_identity.txt || break; sleep .1; done; '
-            'cat /tmp/render_gl_identity.txt; cat /root/.gz/rendering/ogre2.log', 'source-renderer',20)
+        renderer_preflight(physics,plan['egl_vendor'],call)
         # Compare the active context with its own Ogre log, not another diagnostic.
         code=("import sys; sys.path.insert(0,'/opt/integration'); from pathlib import Path; "
               "from vio_source_probe import hardware_renderer; "
