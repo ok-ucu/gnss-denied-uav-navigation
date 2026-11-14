@@ -10,20 +10,29 @@ from unittest.mock import patch
 
 from linux_gpu import run_camera, run_source_runtime as runtime
 
+VENDOR_JSON=json.dumps(dict(file_format_version='1.0.0',ICD=dict(library_path='libEGL_nvidia.so.0')))
+
 
 class SourceRuntimeTests(unittest.TestCase):
     def test_prepare_reuses_verified_scene_and_requires_explicit_egl(self):
         with tempfile.TemporaryDirectory() as temp, \
              patch.object(run_camera,'INTEGRATION',Path(temp)), \
              patch.object(runtime.prepare_vio,'export') as export:
+            vendor=Path(temp)/'10_nvidia.json';vendor.write_text(VENDOR_JSON)
             run,plan=runtime.prepare('20261114-unit1','camera:local','fcu:local',
-                '/usr/share/glvnd/egl_vendor.d/10_nvidia.json',123)
+                str(vendor),123)
             export.assert_called_once_with(run/'artifacts/vio')
             self.assertEqual((run/'models/world.sdf').read_bytes(),run_camera.verified_file('models/patched_c_world.sdf').read_bytes())
             self.assertEqual((run/'artifacts/camera.parm').read_text(),
                              'SERIAL0_PROTOCOL 2\nLOG_DISARMED 1\nSYSID_THISMAV 1\n')
-            env=json.loads((run/'device.override.yaml').read_text())['services']['physics']['environment']
+            override=json.loads((run/'device.override.yaml').read_text())
+            self.assertEqual(set(override['services']),{'physics'})
+            physics=override['services']['physics'];env=physics['environment']
+            self.assertEqual(physics['volumes'],[dict(type='bind',source=str(vendor),target=str(vendor),
+                read_only=True,bind=dict(create_host_path=False))])
             self.assertEqual(env['__EGL_VENDOR_LIBRARY_FILENAMES'],plan['egl_vendor'])
+            self.assertEqual(env['__GLX_VENDOR_LIBRARY_NAME'],'nvidia')
+            self.assertEqual(env['LIBGL_ALWAYS_SOFTWARE'],'0');self.assertEqual(physics['gpus'],'all')
             self.assertEqual(plan['partition'],'gnss-gpu-20261114-unit1')
             self.assertEqual(env['GNSS_EXPECTED_SYSTEM'],'1')
             self.assertFalse(plan['execution_allowed']);self.assertFalse(plan['forwarding_enabled'])
@@ -36,8 +45,10 @@ class SourceRuntimeTests(unittest.TestCase):
                 runtime.prepare('20261114-unit2','c','f',vendor,domain)
 
     def fixture(self):
+        temp=tempfile.TemporaryDirectory();self.addCleanup(temp.cleanup)
+        vendor=Path(temp.name)/'10_nvidia.json';vendor.write_text(VENDOR_JSON)
         names=['gnss-gpu-physics-unit','gnss-gpu-fcu-unit'];project='gnss-gpu-unit'
-        plan=dict(names=names,partition=project,ros_domain=123,egl_vendor='/nvidia.json')
+        plan=dict(names=names,partition=project,ros_domain=123,egl_vendor=str(vendor))
         records=[dict(Id=name+'-id',Name='/'+name,State=dict(Running=True),
             Config=dict(Labels={'com.docker.compose.project':project},Env=[]),
             HostConfig=dict(RestartPolicy=dict(Name='no'),PortBindings={},PublishAllPorts=False),
@@ -46,14 +57,16 @@ class SourceRuntimeTests(unittest.TestCase):
         records[0]['HostConfig']['NanoCpus']=3_000_000_000
         records[0]['NetworkSettings']=dict(Networks={project:{}})
         records[1]['HostConfig']['NetworkMode']='container:'+records[0]['Id']
+        records[0]['Mounts'].append(dict(Type='bind',Destination=str(vendor),Source=str(vendor),RW=False))
         records[0]['Config']['Env']=['GZ_PARTITION='+project,'ROS_DOMAIN_ID=123',
-            '__EGL_VENDOR_LIBRARY_FILENAMES=/nvidia.json','GNSS_EXPECTED_SYSTEM=1','GNSS_EXPECTED_COMPONENT=1']
+            '__EGL_VENDOR_LIBRARY_FILENAMES='+str(vendor),'GNSS_EXPECTED_SYSTEM=1','GNSS_EXPECTED_COMPONENT=1']
         return records,plan
 
     def test_renaming_alone_cannot_satisfy_runtime_contract(self):
         original,plan=self.fixture()
         runtime.validate_runtime(original,plan,Path('/new-run'))
-        for change in ('owner','restart','cpu','namespace','mount','write','domain','egl','ports'):
+        for change in ('owner','restart','cpu','namespace','mount','write','domain','egl','ports',
+                       'vendor_missing','vendor_write','vendor_source','vendor_type'):
             with self.subTest(change=change):
                 r=copy.deepcopy(original)
                 if change=='owner':r[0]['Config']['Labels']['com.docker.compose.project']='other'
@@ -63,6 +76,10 @@ class SourceRuntimeTests(unittest.TestCase):
                 elif change=='mount':r[0]['Mounts'][0]['Source']='/other-checkout'
                 elif change=='write':r[0]['Mounts'][0]['RW']=True
                 elif change=='ports':r[0]['HostConfig']['PortBindings']={'5760/tcp':[{}]}
+                elif change=='vendor_missing':r[0]['Mounts'].pop()
+                elif change=='vendor_write':r[0]['Mounts'][-1]['RW']=True
+                elif change=='vendor_source':r[0]['Mounts'][-1]['Source']='/different.json'
+                elif change=='vendor_type':r[0]['Mounts'][-1]['Type']='volume'
                 else:r[0]['Config']['Env']=[s for s in r[0]['Config']['Env'] if not s.startswith('ROS_DOMAIN_ID=' if change=='domain' else '__EGL_VENDOR')]
                 with self.assertRaises(RuntimeError):runtime.validate_runtime(r,plan,Path('/new-run'))
 
@@ -109,6 +126,45 @@ class SourceRuntimeTests(unittest.TestCase):
             self.assertEqual(result['startup'],'BLOCKED');self.assertEqual(result['vio_source'],'NOT TESTED')
             self.assertFalse(result['forwarding_enabled'])
 
+    def test_missing_host_vendor_fails_without_creating_source_or_preparing_runtime(self):
+        with tempfile.TemporaryDirectory() as temp,patch.object(run_camera,'prepare') as prepare:
+            missing=Path(temp)/'absent.json'
+            with self.assertRaisesRegex(ValueError,'Host NVIDIA EGL vendor JSON missing'):
+                runtime.prepare('20261114-missing','c','f',str(missing),123)
+            prepare.assert_not_called();self.assertFalse(missing.exists())
+
+    def test_invalid_host_json_or_descriptor_fails_before_preparation(self):
+        with tempfile.TemporaryDirectory() as temp,patch.object(run_camera,'prepare') as prepare:
+            vendor=Path(temp)/'10_nvidia.json'
+            for data in ('broken JSON','[]','{}','{"ICD":{"library_path":""}}',
+                         '{"ICD":{"library_path":"libEGL_nvidia.so.0"},"extra":NaN}'):
+                with self.subTest(data=data):
+                    vendor.write_text(data)
+                    with self.assertRaisesRegex(ValueError,'Host NVIDIA EGL vendor JSON invalid'):
+                        runtime.prepare('20261114-invalid','c','f',str(vendor),123)
+            prepare.assert_not_called()
+
+    def test_unreadable_host_vendor_fails_before_any_docker_operation(self):
+        _,plan=self.fixture()
+        with patch.object(Path,'read_text',side_effect=PermissionError('permission denied')), \
+             patch.object(runtime.subprocess,'run') as run, \
+             patch.object(runtime.subprocess,'check_output') as inspect:
+            with self.assertRaisesRegex(ValueError,'Host NVIDIA EGL vendor JSON unreadable'):
+                runtime.execute(Path('/unused'),plan,['docker','compose'],False)
+            run.assert_not_called();inspect.assert_not_called()
+
+    def test_host_source_is_rechecked_before_start_if_removed_or_changed(self):
+        _,plan=self.fixture();vendor=Path(plan['egl_vendor'])
+        for change in ('removed','invalid'):
+            with self.subTest(change=change):
+                if change=='removed':vendor.unlink()
+                else:vendor.write_text('broken')
+                with patch.object(runtime.subprocess,'run') as run, \
+                     patch.object(runtime.subprocess,'check_output') as inspect:
+                    with self.assertRaisesRegex(ValueError,'Host NVIDIA EGL vendor JSON'):
+                        runtime.execute(Path('/unused'),plan,['docker','compose'],False)
+                    run.assert_not_called();inspect.assert_not_called()
+
 
 class RendererPreflightTests(unittest.TestCase):
     """Run the actual subcheck programs on temporary files, never in Docker."""
@@ -118,7 +174,7 @@ class RendererPreflightTests(unittest.TestCase):
         self.paths={name:self.root/name for name in ('setup.bash','vendor.json','plugin.txt',
                     'actual.sdf','expected.sdf','identity.txt','ogre.log')}
         self.paths['setup.bash'].write_text('export ROS_DISTRO=jazzy\n')
-        self.paths['vendor.json'].write_text('{}\n')
+        self.paths['vendor.json'].write_text(VENDOR_JSON)
         self.paths['plugin.txt'].write_text('f116b03552d05c8d0b0bed5ed67033a1183121d1\n')
         for name in ('actual.sdf','expected.sdf'):self.paths[name].write_text('<sdf/>\n')
         self.paths['identity.txt'].write_text('vendor=NVIDIA Corporation\nrenderer=Quadro fixture\nversion=fixture\n')
