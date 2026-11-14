@@ -24,6 +24,14 @@ RUNTIME_ONLY={
     'integration/timesync_patch_runs/20261108/patch_install/setup.bash':'generated colcon overlay; never source',
 }
 EXPLICIT_LOCAL={'mount_math':'integration/isolated_blockers/20261109_a/code/mount_math.py'}
+SOURCE_SHELLS={'integration/run_vio_source_probe.sh','integration/linux_gpu/check_timesync.sh'}
+
+
+def shell_source_references(name,text):
+    """These two launchers bind root/here to integration, not generated output."""
+    if name not in SOURCE_SHELLS:return set()
+    return {'integration/'+p for p in re.findall(
+        r'\$(?:root|here)/([A-Za-z0-9_./-]+\.(?:py|sh|yaml|xml|jsonl))',text)}
 
 
 def standard_library(name):
@@ -60,6 +68,8 @@ def main():
         ignored=subprocess.run(['git','check-ignore','--no-index','--quiet',name],cwd=ROOT).returncode==0
         if ignored:errors.append('Allowlisted file is ignored: '+name)
         text=p.read_text()
+        for target in shell_source_references(name,text):
+            if target not in selected:errors.append(name+' references excluded '+target)
         if re.search(r'/(?:Users|home)/[A-Za-z0-9_.-]+/',text):
             # /home/docker is an intentional, fixed path INSIDE the pinned image.
             if re.search(r'/Users/|/home/(?!docker/)[A-Za-z0-9_.-]+/',text):absolute.append(name)

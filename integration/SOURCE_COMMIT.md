@@ -9,8 +9,8 @@ isolated replay fixture, GPU preview configurations and accurate permission
 boundary analysis. The latter corrects attribution/measurement; it does not
 solve the observed live permission expiration or extend its deadline.
 
-Final selected-source validation: **168/168 offline tests PASS, no skips** in a
-132-file source-only snapshot on Mac Python3.9.6, NumPy1.26.4 and
+Final selected-source validation: **169/169 offline tests PASS, no skips** in a
+133-file source-only snapshot on Mac Python3.9.6, NumPy1.26.4 and
 OpenCV-headless4.10.0.84. Only the four pinned external VIO files were supplied;
 historical artifacts and unselected legacy tools were absent. Docker Engine
 was unavailable; these tests ran natively, without starting/restarting Docker.
@@ -19,6 +19,9 @@ Source audit, AST/XML/shell syntax, source/COPY closure, Markdown links, secret
 patterns and static Compose validation PASS. No new Linux build/runtime PASS is claimed.
 The four external VIO files remain pinned and unmodified. The current practical
 order and STOP gates are in [README.md](README.md).
+The packaging follow-up includes `mavros_isolated.yaml`, required by the replay
+launcher. Shell source-reference auditing and a regression now check this
+dependency explicitly; Python import closure alone did not cover it.
 
 Unselected legacy trials/reports, historical logs, ZIPs, images, raw frames,
 firmware/install/build outputs, root test_gazebo_flight.py and teammate vio/

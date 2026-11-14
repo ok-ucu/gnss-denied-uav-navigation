@@ -31,7 +31,7 @@ remain open. Historical evidence remains locally under the ignored run folders.
 Current validation instructions: [VIO source OFF/ON/OFF](VIO_SOURCE_PROBE.md),
 [amd64 build/provenance and isolated TIMESYNC](AMD64_TRANSPORT_READINESS.md),
 and [reviewed teammate evidence](reports/VIO_ISOLATION_20261113.md).
-The current source package has168offline tests; native runtime results remain
+The current source package has169offline tests; native runtime results remain
 separate from those tests. The selected compact replay JSONL is an intentional
 test fixture with recorded provenance, not a runtime capture dump.
 

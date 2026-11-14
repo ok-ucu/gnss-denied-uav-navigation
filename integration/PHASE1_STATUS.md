@@ -14,8 +14,8 @@ not mapping-log time, and separates userspace receive→final validation. Sender
 kernel RX and socket wait remain unmeasured; no TTL/watchdog relaxation or
 scheduling optimization was applied. The known17.1195ms budget versus20.792916ms
 enqueue→userspace receive remains unresolved.
-Validation:168/168offline tests PASS, including13new native-candidate/deadline
-regressions. Compose previews and build-input closure PASS. Linux package
+Validation:169/169offline tests PASS, including the source-package shell-input
+regression for the isolated MAVROS replay YAML. Compose previews and build-input closure PASS. Linux package
 availability, native builds/overlay load and capture runtime are NOT TESTED.
 
 [Teammate evidence, isolated IMU changes and next Linux experiment](reports/VIO_ISOLATION_20261113.md).

@@ -18,6 +18,7 @@ integration/linux_gpu/phase1.gpu.dri.yaml
 integration/linux_gpu/phase1.gpu.nvidia.yaml
 integration/linux_gpu/phase1.gpu.wsl.yaml
 integration/linux_gpu/prepare_context.py
+integration/mavros_isolated.yaml
 integration/permission_deadlines.py
 integration/phase1.compose.yaml
 integration/phase1_transport.py

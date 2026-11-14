@@ -65,6 +65,7 @@ integration/matched_physics/results/SIM_JSON_review_20261109.h
 integration/matched_physics/results/camera_mount_review_20261109.json
 integration/mavros_216_timesync_signed.patch
 integration/mavros_epoch.py
+integration/mavros_isolated.yaml
 integration/mavros_live_runs/20261108/mavlink_v20.py
 integration/mavros_time_patch/CMakeLists.txt
 integration/mavros_time_patch/LICENSE.md

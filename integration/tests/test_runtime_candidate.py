@@ -15,6 +15,7 @@ from linux_gpu.prepare_context import INPUTS
 from physics_clock_mapping import AppliedClockMapping
 from phase1_transport import prepared_firmware_digest
 import launch_phase1
+from audit_source_scope import shell_source_references,SOURCE_SHELLS
 
 
 def elf(machine):
@@ -23,6 +24,16 @@ def elf(machine):
 
 
 class RuntimeCandidateTests(unittest.TestCase):
+    def test_shell_runtime_inputs_are_in_source_package(self):
+        selected=set((runtime.ROOT/'SOURCE_FILES.txt').read_text().splitlines())
+        for name in SOURCE_SHELLS:
+            dependencies=shell_source_references(name,(runtime.ROOT.parent/name).read_text())
+            self.assertTrue(dependencies)
+            self.assertFalse(dependencies-selected,(name,dependencies-selected))
+        dependencies=shell_source_references('integration/linux_gpu/check_timesync.sh',
+            (runtime.ROOT/'linux_gpu/check_timesync.sh').read_text())
+        self.assertIn('integration/mavros_isolated.yaml',dependencies)
+
     def setUp(self):
         temp=tempfile.TemporaryDirectory();self.addCleanup(temp.cleanup)
         self.root=Path(temp.name)

@@ -1,0 +1,10 @@
+/**:
+  ros__parameters:
+    use_sim_time: true
+    fcu_url: "udp://127.0.0.1:14591@127.0.0.1:14590"
+    gcs_url: ""
+    fcu_protocol: "v2.0"
+    tgt_system: 1
+    tgt_component: 1
+    plugin_allowlist: [sys_status, sys_time, vision_pose, vision_speed]
+    timesync_mode: NONE
