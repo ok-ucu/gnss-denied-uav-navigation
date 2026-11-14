@@ -19,7 +19,8 @@ class SourceProbeTests(unittest.TestCase):
         (self.root/'observer').mkdir()
         self.write('phases.jsonl',[dict(phase=k,host=v) for k,v in
             [('before',80),('on',99),('after',161),('end',171)]],True)
-        self.write('witness.json',dict(start=75,end=172,failure=[]))
+        self.write('witness.json',dict(start=75,end=172,failure=[],verified_heartbeats=90,
+            heartbeat_policy='v2-crc-source-role-disarmed-sustained'))
         native=[];resources=[]
         for start in (80,99,161):
             for i in range(3):
@@ -151,6 +152,17 @@ class SourceProbeTests(unittest.TestCase):
         self.assertEqual(hardware_renderer('GL_RENDERER=NVIDIA GeForce RTX 4090'),'NVIDIA GeForce RTX 4090')
         for value in ('llvmpipe (LLVM 15)','D3D12 (Microsoft Basic Render Driver)','SwiftShader','unknown'):
             with self.assertRaises(ValueError):hardware_renderer('renderer='+value)
+
+    def test_quadro_requires_actual_vendor_and_cannot_override_software(self):
+        actual='Quadro T2000 with Max-Q Design/PCIe/SSE2'
+        self.assertEqual(hardware_renderer('vendor=NVIDIA Corporation\nrenderer='+actual),actual)
+        for identity in ('renderer='+actual,'vendor=NVIDIA Corporation\nrenderer=llvmpipe (LLVM)',
+                         'vendor=NVIDIA Corporation\nrenderer=unknown'):
+            with self.assertRaises(ValueError):hardware_renderer(identity)
+
+    def test_legacy_witness_without_expected_disarmed_validation_cannot_pass(self):
+        self.write('witness.json',dict(start=75,end=172,failure=[]))
+        self.assertIn('expected_disarmed_heartbeat_evidence',self.failed_checks())
 
 
 if __name__=='__main__':unittest.main()

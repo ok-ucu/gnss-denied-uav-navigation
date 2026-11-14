@@ -6,6 +6,7 @@ set -euo pipefail
 [[ $# == 2 && "$1" =~ ^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$ ]] || { echo 'Require RUN_ID and pinned VIO directory'; exit 2; }
 [[ "${ROS_DOMAIN_ID:-}" =~ ^[0-9]+$ && "${ROS_DOMAIN_ID}" -gt 0 && "${ROS_DOMAIN_ID}" -le 232 ]] || { echo 'Require dedicated nonzero ROS_DOMAIN_ID'; exit 2; }
 [[ -n "${GZ_PARTITION:-}" ]] || { echo 'Require existing Gazebo GZ_PARTITION'; exit 2; }
+[[ "${GNSS_EXPECTED_SYSTEM:-}" =~ ^[0-9]+$ && "${GNSS_EXPECTED_COMPONENT:-}" =~ ^[0-9]+$ ]] || { echo 'Require explicit FCU system/component IDs'; exit 2; }
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 vio="$2"
 run="/tmp/gnss-vio-source-$1"
@@ -18,6 +19,9 @@ helper="$here/vio_source_probe.py"
 CAMERA=/world/iris_runway/model/iris_with_gimbal/model/gimbal/link/pitch_link/sensor/camera/image
 source_pid= observer_pid= witness_pid= camera_pid=
 fixture_owned=0
+disarmed() {
+  python3 -B "$here/linux_gpu/verified_disarmed.py" --expected-system "$GNSS_EXPECTED_SYSTEM" --expected-component "$GNSS_EXPECTED_COMPONENT" --directory "$run/$1"
+}
 cleanup() {
   local status=$?
   trap - EXIT INT TERM
@@ -44,7 +48,7 @@ cleanup() {
   if [[ "$fixture_owned" == 1 ]]; then
     python3 -B "$here/vio_ground_fixture.py" remove --directory "$run/fixture" >> "$run/fixture.log" 2>&1 || status=1
   fi
-  python3 -B "$here/linux_gpu/disarmed.py" > "$run/disarmed-after.log" 2>&1 || status=1
+  disarmed disarmed-after > "$run/disarmed-after.log" 2>&1 || status=1
   printf '%s\n' "$status" > "$run/collection.exit"
   # Missing evidence/failure/partial runs produce FAIL, never a fallback PASS.
   python3 -B "$helper" analyze --directory "$run" > "$run/analysis.log" 2>&1 || status=1
@@ -55,7 +59,7 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
-python3 -B "$here/linux_gpu/disarmed.py" > "$run/disarmed-before.log" 2>&1
+disarmed disarmed-before > "$run/disarmed-before.log" 2>&1
 python3 -B "$helper" preflight --directory "$run" --vio-dir "$vio" > "$run/preflight.log" 2>&1
 # Existing fixture/model is never removed on create failure. No rename fallback.
 python3 -B "$here/vio_ground_fixture.py" create --directory "$run/fixture" --size-m 1 --tile-size-m .02 > "$run/fixture.log" 2>&1

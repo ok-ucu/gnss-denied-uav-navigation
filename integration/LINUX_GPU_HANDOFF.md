@@ -1,10 +1,64 @@
 # Linux GPU Phase 1 handoff
 
 **HOLD. execution_allowed=false; forwarding_enabled=false.**
-Checkpoint before this handoff: `9298da8`, branch `gazebo-sitl-integration`.
+Branch `gazebo-sitl-integration`; historical checkpoints `9298da8` and35355f4.
 Start with the [preserved measured summary](reports/RENDERING_20261111.md) and
 [current status](PHASE1_STATUS.md). No flight, arming, mode changes, navigation
 source switch, VIO→FCU route or ExternalNav approval is part of this handoff.
+
+## Current guarded source runtime — 14 November 2026
+
+Use this procedure before the historical camera-only/full-stack instructions
+below. The new Linux runtime has **NOT TESTED** live status. Offline validation
+is198/198 tests PASS; no source-continuity or Phase1 PASS is claimed.
+The separate T2000 NVIDIA diagnostic passed, but camera02's own Ogre log reports
+llvmpipe. Its strict heartbeat check failed on prefix108; raw TCP evidence does
+not establish that byte's origin. See [current status](PHASE1_STATUS.md).
+
+Use a NEW checkout so the teammate's local changes/evidence are untouched.
+Set PHASE1_SOURCE_SHA to the full commit supplied in the handoff message and
+verify that exact revision. If the remote
+branch has since advanced, STOP on the mismatch and obtain the reviewed revision.
+
+```bash
+set -euo pipefail
+: "${PHASE1_SOURCE_SHA:?Set the full SHA supplied with this handoff}"
+git clone --single-branch --branch gazebo-sitl-integration \
+  https://github.com/ok-ucu/gnss-denied-uav-navigation.git gnss-phase1-guarded
+cd gnss-phase1-guarded
+test "$(git rev-parse HEAD)" = "$PHASE1_SOURCE_SHA"
+# Separate VIO dependency; fetch only, never merge or overwrite vio/.
+git fetch origin vio-setup
+git cat-file -e d33f66008fd7b6de332c96dd324b8ddbd320c194^{commit}
+```
+
+If either image below is absent, use the pinned camera/SITL build recipes below
+first, saving logs and actual image IDs; native amd64 is required by the new
+source-runtime launcher. Existing image availability/build success is not a
+source-run PASS. NVIDIA driver/toolkit and the vendor JSON injected inside the
+container are host prerequisites; no runtime package install is attempted.
+
+```bash
+docker compose version
+docker image inspect gnss-phase1-camera:linux-gpu gnss-phase1-sitl:linux-gpu
+python3 -B integration/linux_gpu/run_source_runtime.py \
+  --run-id 20261115-source1 --ros-domain 123 \
+  --egl-vendor-file /usr/share/glvnd/egl_vendor.d/10_nvidia.json \
+  --execute --probe
+```
+
+The separate parent checks provenance, actual NVIDIA context/Ogre, namespace,
+mounts, gimbal geometry and sustained expected-source DISARMED heartbeat before
+invoking the unchanged OFF/ON/OFF lifecycle. The probe itself never starts or
+restarts simulator containers. No MAVROS/ExternalNav route exists in this test.
+The parent stops only its owned container IDs in finally and retains evidence.
+Review SOURCE_RUNTIME_RESULT.json and the independent subscriber SOURCE_RESULT
+under `integration/linux_gpu_runs/<run-id>/evidence/`; STOP at the first failed
+gate. Detailed prerequisites, time domains, criteria, collection and cleanup:
+[VIO_SOURCE_PROBE.md](VIO_SOURCE_PROBE.md). Evidence packaging uses a reviewed
+explicit allowlist: [LINUX_EVIDENCE_REVIEW.md](LINUX_EVIDENCE_REVIEW.md).
+No result above resolves native clock admission, transport permission deadlines,
+live-camera fusion or flight readiness. Both safety flags remain false.
 
 ## What works, and the immediate question
 
@@ -88,6 +142,11 @@ compiler/ABI/parser tests fail, preserve the build log and stop; do not disable
 the test or silently use an unpatched firmware. No Linux build success claimed.
 
 ## Prepare and execute the existing camera-only diagnostic
+
+Historical path: its strict `disarmed.py` remains unchanged and can fail on
+mixed-prefix input. NVIDIA mode here does not select the EGL vendor explicitly.
+For the guarded NVIDIA source test use the current procedure above; do not
+bypass its checks or rename a stopped camera-only container into a source stack.
 
 First inspect preparation only; no container starts:
 

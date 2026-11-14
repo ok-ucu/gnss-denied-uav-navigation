@@ -1,5 +1,21 @@
 # Linux GPU source handoff scope
 
+## Guarded source-runtime update — 14 November 2026
+
+The new source set adds an expected-source, sustained DISARMED heartbeat guard,
+separate bounded NVIDIA startup, explicit EGL vendor selection, source witness
+integration, evidence ZIP packaging and focused regressions. The legacy strict
+parser and teammate files remain unchanged. The source allowlist now contains
+141 files; validation in a clean selected-source snapshot is198/198 offline
+tests PASS, with only the four pinned VIO exports and no historical evidence,
+untracked legacy tools or Linux runtime. Exact revision and commands are supplied by the
+commit handoff and [LINUX_GPU_HANDOFF.md](LINUX_GPU_HANDOFF.md).
+
+Only reviewed changed/new files are staged explicitly. Previous staging lists
+and validation counts below describe their historical updates, not a request to
+restage the entire source tree. Logs, binaries, datasets, upstream repositories,
+legacy/unrelated files and teammate vio/ remain excluded and preserved locally.
+
 ## Current update — 14 November 2026
 
 The current source set includes isolated IMU/clock ingestion, source-continuity

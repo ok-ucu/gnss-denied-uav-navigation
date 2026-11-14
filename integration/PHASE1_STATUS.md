@@ -1,5 +1,75 @@
 # Phase 1 status — Linux GPU handoff
 
+## Linux archive / source-runtime prerequisite — 2026-11-14
+
+**HOLD; execution_allowed=false; forwarding_enabled=false.**
+Read `phase1-evidence-35355f4-FINAL.zip` (SHA256
+`059c8fcf4e5bdb4c965207fff95fa41c3055e8e571a4115fc0b8a95f6d8afc00`),
+with HEAD35355f4 evidence. No archived source or container was modified.
+Separate NVIDIA diagnostic identifies Quadro T2000/NVIDIA595.99.02; however,
+camera02's actual Ogre log says llvmpipe and its metadata lacks explicit EGL
+vendor selection. Do not combine those different contexts into a GPU camera
+PASS. Both camera02 containers were stopped by their original launcher.
+Seven positive TIMESYNC replay result files agree with the suite, with the
+bad-domain FAIL expected. This is isolated artificial-peer evidence, not native
+FCU clock admission. Robust heartbeat observation has no persistent artifact.
+Original strict heartbeat traceback proves prefix108/0x6c failure; no raw TCP
+capture establishes where that byte originated.
+
+The source probe's documented `gnss-sim-*` prerequisite had no repository
+startup implementation. Camera-only Compose creates/stops `gnss-gpu-*-<id>`;
+renaming does not establish mounts, shared namespace, sensors or provenance.
+Added a separate opt-in bounded NVIDIA runtime parent reusing that Compose and
+verified SDFs. It exports pinned VIO d33f660, selects EGL vendor explicitly,
+checks namespace/mounts/renderer/firmware/mount geometry, then optionally invokes
+the existing OFF/ON/OFF probe. The probe never starts/restarts containers.
+The parent stops only owned IDs in finally; no MAVROS or FCU vision route.
+
+New expected-source receive-only heartbeat guard discards/counts BAD_DATA and
+requires valid MAVLink2/CRC, configured IDs1/1, ArduPilot/quadcopter role and
+>=3 DISARMED heartbeats over >=2s, with the existing3s heartbeat freshness bound.
+The continuous native witness uses it too; legacy strict parser stays unchanged.
+Protocol/source checks are not cryptographic authentication. Quadro renderer
+recognition now checks the actual NVIDIA vendor without allowing software.
+
+[Exact Linux startup, source-only test, evidence and cleanup commands](VIO_SOURCE_PROBE.md).
+Mac preparation/Compose validation is not runtime acceptance. Live source and
+capture transport remain NOT TESTED/BLOCKED; permission deadlines, native clock
+admission and later live-VIO fusion still require separate gates. No simulations,
+arming, forwarding, commit or push were performed here.
+
+Offline validation of this addition: **198/198 tests PASS**, no skips; source
+allowlist/import/Markdown-link audit and syntax checks PASS. New NVIDIA startup
+Compose resolved successfully in PREPARE mode on Mac; actual Linux execution
+remains NOT TESTED. Pinned VIO export and all four hashes verified locally.
+
+## Independent review — 2026-11-14
+
+**HOLD; execution_allowed=false; forwarding_enabled=false.**
+Reviewed branch `gazebo-sitl-integration`, HEAD
+`35355f4f5489b8f16aa32fa93cb5cc242b7fc952`, preserving existing local files.
+[Audit, work classification and exact Linux evidence request](LINUX_EVIDENCE_REVIEW.md).
+The teammate reports T2000 GPU/EGL/Ogre2, image and MAVROS builds PASS;
+TIMESYNC replay reportedly PASS. Their changes and raw evidence have not been
+transferred, so these results are not independently verified here. Live
+DISARMED heartbeat is BLOCKED; camera-only and VIO OFF/ON/OFF remain unconfirmed.
+
+Added offline real-codec/synthetic-socket regressions for malformed prefix/CRC,
+BAD_DATA, packet fragmentation, armed/disarmed heartbeat, EOF and timeouts.
+The production parser remains unchanged. Explicit characterization tests show
+it accepts unexpected source IDs and MAVLink 1; they do not prove FCU identity
+or MAVLink 2. No parser fix is justified by the missing Linux error evidence.
+Added an offline explicit-allowlist evidence ZIP exporter with hashes and
+provided PASS/FAIL/BLOCKED/NOT TESTED summaries, always marked unverified/HOLD.
+It neither runs tests nor authorizes a runtime.
+
+Validation: **184/184 offline tests PASS**, no skips, using pinned VIO sources;
+source/import/Markdown-link audit PASS. Frames, covariance, TIMESYNC, clock
+mapping, transport deadlines and production DISARMED code remain unchanged.
+No Linux build, simulation, forwarding or flight was run. Next action: obtain
+the blocked heartbeat traceback/raw capture and source/build/renderer/overlay
+provenance from Linux before selecting a parser or runtime-policy change.
+
 ## Latest review — 2026-11-13
 
 **HOLD; execution_allowed=false; forwarding_enabled=false.**

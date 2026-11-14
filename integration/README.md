@@ -31,7 +31,7 @@ remain open. Historical evidence remains locally under the ignored run folders.
 Current validation instructions: [VIO source OFF/ON/OFF](VIO_SOURCE_PROBE.md),
 [amd64 build/provenance and isolated TIMESYNC](AMD64_TRANSPORT_READINESS.md),
 and [reviewed teammate evidence](reports/VIO_ISOLATION_20261113.md).
-The current source package has169offline tests; native runtime results remain
+The current source package has198offline tests; native runtime results remain
 separate from those tests. The selected compact replay JSONL is an intentional
 test fixture with recorded provenance, not a runtime capture dump.
 
@@ -39,10 +39,10 @@ Follow these gates in order; stop at the first FAIL or missing evidence:
 
 |Gate|Existing command/procedure|Required PASS/evidence|
 |---|---|---|
-|Linux GPU access + renderer|On the Linux host: `uname -sm`; driver/device inventory; `docker exec gnss-sim-gazebo cat /tmp/render_gl_identity.txt` plus current Ogre log|Actual context corroborated, no llvmpipe/software/WARP; host GPU alone is insufficient|
+|Linux GPU access + renderer|Use the separate guarded NVIDIA startup in [the handoff](LINUX_GPU_HANDOFF.md); it records the NEW runtime's context and Ogre log|Actual context corroborated, no llvmpipe/software/WARP; host GPU alone is insufficient|
 |Native builds/provenance|Run the build/export blocks in [amd64 readiness](AMD64_TRANSPORT_READINESS.md)|Pinned AP commit, actual parser5/5, ELF/image architecture, patch/context/base/binary hashes; candidate stays HOLD|
 |Isolated overlay|Run `linux_gpu/check_timesync.sh` in the documented NEW network-none container|Actual patched-plugin load, signed offset/jitter/drift/reset replay, unchanged stamps, valid21/9covariance, no packet loss/duplicates|
-|VIO continuity|Run `run_vio_source_probe.sh` using the [source procedure](VIO_SOURCE_PROBE.md)|Independent subscriber; full-window/tail gaps<=500ms; publication age<=180ms sim; healthy ordered IMU/IPC, no recovery/loss|
+|VIO continuity|After startup PASS, `run_source_runtime.py --execute --probe` invokes the [source procedure](VIO_SOURCE_PROBE.md)|Independent subscriber; full-window/tail gaps<=500ms; publication age<=180ms sim; healthy ordered IMU/IPC, no recovery/loss|
 |Native clock admission|Separate review of applied-clock trace/cross-check and firmware identity|Not yet verified for amd64; candidate cannot self-approve or execute|
 |Capture normal|Only after admission, run `run_latency_matrix.py --cases normal --normal-duration 60 --isolated-imu` with its documented run arguments|Both wire channels for each eligible sample, valid permission at final boundary,200ms clock/500ms availability, zero FCU vision packets|
 
@@ -62,13 +62,15 @@ New Linux image builds and hardware GPU execution remain NOT TESTED here.
 
 ```bash
 python3 -B integration/audit_source_scope.py
-PYTHONPATH=integration VIO_SOURCE_DIR="$PWD/vio" \
+# Requires the separate pinned Git object; use a NEW export directory.
+python3 -B integration/linux_gpu/prepare_vio.py --output integration/linux_gpu_runs/offline-vio-01
+PYTHONPATH=integration VIO_SOURCE_DIR="$PWD/integration/linux_gpu_runs/offline-vio-01" \
   python3 -B -m unittest discover -s integration/tests -v
 git diff --check
 git diff --cached --name-only
 ```
 
-Full tests need NumPy and OpenCV plus the existing teammate `vio/` checkout.
+Full tests need NumPy and OpenCV plus the four hash-verified VIO exports.
 ROS/Gazebo imports are generally lazy, but using the already installed ROS Jazzy
 runtime is the verified full-suite environment. Missing dependencies are not
 treated as a PASS. No package is installed by the audit script.

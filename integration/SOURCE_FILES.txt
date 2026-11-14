@@ -2,6 +2,7 @@
 integration/.gitignore
 integration/AMD64_TRANSPORT_READINESS.md
 integration/HANDOFF_STAGING_FILES.txt
+integration/LINUX_EVIDENCE_REVIEW.md
 integration/LINUX_GPU_HANDOFF.md
 integration/MAVROS.isolated.Dockerfile
 integration/PHASE1_STATUS.md
@@ -55,7 +56,9 @@ integration/linux_gpu/phase1.gpu.wsl.yaml
 integration/linux_gpu/prepare_context.py
 integration/linux_gpu/prepare_vio.py
 integration/linux_gpu/run_camera.py
+integration/linux_gpu/run_source_runtime.py
 integration/linux_gpu/sample_camera.py
+integration/linux_gpu/verified_disarmed.py
 integration/live_vio_observer_udp.xml
 integration/matched_physics/AP444_BOOLEAN_PATCH_PROPOSAL.patch
 integration/matched_physics/analyze_clock_evidence.py
@@ -78,6 +81,7 @@ integration/navigation_egress.py
 integration/navigation_lifecycle.py
 integration/navigation_store.py
 integration/observe_frame_bridge.py
+integration/package_linux_evidence.py
 integration/permission_deadlines.py
 integration/phase1.compose.yaml
 integration/phase1_capture_mavros.yaml
@@ -100,8 +104,10 @@ integration/runtime_candidate.py
 integration/stage_timing.py
 integration/tests/fixtures/mavros_timesync_replay.jsonl
 integration/tests/fixtures/mavros_timesync_replay.metadata.json
+integration/tests/test_disarmed_stream.py
 integration/tests/test_ekf3_bench_analysis.py
 integration/tests/test_ekf3_readiness.py
+integration/tests/test_evidence_package.py
 integration/tests/test_fault_storage.py
 integration/tests/test_fcu_receipt_guard.py
 integration/tests/test_isolated_blockers.py
@@ -116,7 +122,9 @@ integration/tests/test_permission_deadlines.py
 integration/tests/test_phase1_pipeline.py
 integration/tests/test_reset_safety.py
 integration/tests/test_runtime_candidate.py
+integration/tests/test_source_runtime.py
 integration/tests/test_stage_latency.py
+integration/tests/test_verified_disarmed.py
 integration/tests/test_vio_frame_bridge.py
 integration/tests/test_vio_geometry.py
 integration/tests/test_vio_quality_gate.py

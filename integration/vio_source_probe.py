@@ -54,11 +54,14 @@ def gaps(values):
 
 
 def hardware_renderer(identity):
+    fields=dict(line.split('=',1) for line in identity.splitlines() if '=' in line)
     renderer=next((line.split('=',1)[1] for line in identity.splitlines()
                    if line.startswith(('renderer=','GL_RENDERER='))), '')
     bad=('llvmpipe','softpipe','swrast','software','microsoft basic render','warp','swiftshader','lavapipe')
     if (not renderer or any(word in renderer.lower() for word in bad)
-            or not any(word in renderer.lower() for word in ('nvidia','radeon','intel','amd'))):
+            or not (any(word in renderer.lower() for word in ('nvidia','radeon','intel','amd')) or
+                    (fields.get('vendor',fields.get('GL_VENDOR','')).strip() == 'NVIDIA Corporation'
+                     and renderer.startswith(('Quadro ', 'GeForce ', 'NVIDIA '))))):
         raise ValueError('Reviewed hardware renderer not established: '+renderer)
     return renderer
 
@@ -93,11 +96,7 @@ def witness(directory):
     from gz.msgs10.image_pb2 import Image
     from gz.msgs10.clock_pb2 import Clock
     from gz.msgs10.imu_pb2 import IMU as Imu
-    import importlib.util
-    spec = importlib.util.spec_from_file_location('probe_wire', ROOT/'mavros_live_runs/20261108/mavlink_v20.py')
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    parser = module.MAVLink(None)
+    from linux_gpu.verified_disarmed import HeartbeatGuard
     records = []
     stopped = threading.Event()
     failure = []
@@ -109,7 +108,7 @@ def witness(directory):
                 failure.append('native witness capacity exceeded')
                 stopped.set()
                 return
-            records.append(dict(kind=kind, host=time.monotonic(),
+            records.append(dict(kind=kind, host=value.pop('host',time.monotonic()),
                 thread_cpu_s=time.thread_time(), thread_id=threading.get_native_id(), **value))
             seen.add(kind)
     def camera(msg):
@@ -126,7 +125,8 @@ def witness(directory):
     signal.signal(signal.SIGTERM, lambda *_: stopped.set())
     signal.signal(signal.SIGINT, lambda *_: stopped.set())
     started = time.monotonic()
-    last_heartbeat = started
+    guard = HeartbeatGuard(int(os.environ['GNSS_EXPECTED_SYSTEM']),
+                           int(os.environ['GNSS_EXPECTED_COMPONENT']), started, record)
     resources = []
     ready = False
     try:
@@ -139,23 +139,14 @@ def witness(directory):
                     data = connection.recv(65535)
                     if not data:
                         raise RuntimeError('FCU heartbeat connection closed')
-                    for message in parser.parse_buffer(data) or []:
-                        if message.get_type() == 'HEARTBEAT':
-                            if message.autopilot != module.MAV_AUTOPILOT_ARDUPILOTMEGA:
-                                continue
-                            armed = bool(message.base_mode & 128)
-                            record('heartbeat', armed=armed,system=message.get_srcSystem(),component=message.get_srcComponent())
-                            last_heartbeat = time.monotonic()
-                            if armed:
-                                raise RuntimeError('FCU armed: abort source experiment')
+                    guard.feed(data, time.monotonic())
                 except socket.timeout:
                     pass
-                if time.monotonic()-last_heartbeat > 3:
-                    raise RuntimeError('Passive DISARMED heartbeat stale >3s')
+                heartbeat_ready = guard.ready(time.monotonic())
                 if time.monotonic() >= next_resource:
                     resources.append(resource_sample())
                     next_resource = time.monotonic()+.5
-                if not ready and {'camera','clock','imu','heartbeat'} <= seen:
+                if not ready and heartbeat_ready and {'camera','clock','imu'} <= seen:
                     save(directory/'witness.ready.json', dict(host=time.monotonic()))
                     ready = True
                 if not ready and time.monotonic()-started > 10:
@@ -173,6 +164,9 @@ def witness(directory):
                 output.write(json.dumps(row)+'\n')
         save(directory/'resources.json', resources)
         save(directory/'witness.json', dict(start=started, end=time.monotonic(), failure=failure,
+            expected_system=guard.system, expected_component=guard.component,
+            verified_heartbeats=guard.count, heartbeat_policy='v2-crc-source-role-disarmed-sustained',
+            bad_data=guard.bad_data,
             cap=300000, count=len(records), time_domain='Linux CLOCK_MONOTONIC seconds'))
     return 1 if failure else 0
 
@@ -237,7 +231,8 @@ def preflight(directory, vio_dir):
         max_angles_deg=[max(v['angles_deg'][i] for v in samples) for i in range(3)],
         final_lever_body_flu_m=samples[-1]['lever_body_flu_m']))
     files=[ROOT/name for name in ('run_vio_stream.py','vio_sensor_capture.py','isolated_imu.py',
-        'observe_frame_bridge.py','stage_timing.py','vio_source_probe.py','run_vio_source_probe.sh')]
+        'observe_frame_bridge.py','stage_timing.py','vio_source_probe.py','run_vio_source_probe.sh',
+        'linux_gpu/verified_disarmed.py','linux_gpu/run_source_runtime.py')]
     save(directory/'preflight.json',dict(execution_allowed=False,forwarding_enabled=False,
         boot_id=Path('/proc/sys/kernel/random/boot_id').read_text().strip(),
         monotonic_clock=time.get_clock_info('monotonic').implementation,
@@ -265,6 +260,9 @@ def analyze(directory):
         check('camera_shape_preserved',bool(camera_rows) and all(
             r['width']==640 and r['height']==480 and r['bytes']==640*480*3 for r in camera_rows))
         check('witness_health', not witness_meta['failure'], witness_meta['failure'])
+        check('expected_disarmed_heartbeat_evidence',
+              witness_meta.get('heartbeat_policy')=='v2-crc-source-role-disarmed-sustained' and
+              witness_meta.get('verified_heartbeats',0)>=3)
         check('witness_covers_phases',witness_meta['start']<=bounds['before'] and witness_meta['end']>=bounds['end'])
         source=directory/'source'
         config=json.loads((source/'configuration.json').read_text())
