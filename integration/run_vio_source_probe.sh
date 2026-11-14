@@ -32,19 +32,31 @@ cleanup() {
   for pid in "$source_pid" "$observer_pid" "$camera_pid" "$witness_pid"; do
     [[ -z "$pid" ]] && continue
     for unused in {1..150}; do
-      kill -0 "$pid" 2>/dev/null || break
+      kill -0 -- "-$pid" 2>/dev/null || break
       sleep .1
     done
-    if kill -0 "$pid" 2>/dev/null; then
-      echo "Owned process $pid required forced shutdown" >> "$run/cleanup.log"
+    if kill -0 -- "-$pid" 2>/dev/null; then
+      echo "Owned process group $pid required forced shutdown" >> "$run/cleanup.log"
       kill -KILL -- "-$pid" 2>/dev/null || true
       status=1
+      for unused in {1..50}; do
+        kill -0 -- "-$pid" 2>/dev/null || break
+        sleep .1
+      done
+    fi
+    if kill -0 -- "-$pid" 2>/dev/null || kill -0 "$pid" 2>/dev/null; then
+      echo "Owned group $pid not confirmed stopped; skipping unbounded wait" >> "$run/cleanup.log"
+      status=1
+      continue
     fi
     local child_status=0
     wait "$pid" 2>/dev/null || child_status=$?
     printf 'pid=%s exit=%s\n' "$pid" "$child_status" >> "$run/cleanup.log"
     [[ "$child_status" == 0 || "$child_status" == 143 ]] || status=1
   done
+  if [[ -n "$witness_pid" ]]; then
+    python3 -B "$helper" evidence --directory "$run" > "$run/witness.evidence.json" 2> "$run/witness.evidence.stderr.log" || status=1
+  fi
   if [[ "$fixture_owned" == 1 ]]; then
     python3 -B "$here/vio_ground_fixture.py" remove --directory "$run/fixture" >> "$run/fixture.log" 2>&1 || status=1
   fi
@@ -90,7 +102,7 @@ observe_for 10
 setsid python3 -B "$here/observe_frame_bridge.py" --directory "$run/observer" --duration 150 > "$run/observer.log" 2>&1 &
 observer_pid=$!
 mark on
-setsid python3 -B "$here/run_vio_stream.py" --vio-dir "$vio" --output-dir "$run/source" --duration 60 --ground-z .001 --mount-calibration "$run/mount.json" --profile --async-diagnostics --reliable-camera --isolated-imu --min-odom-subscribers 1 > "$run/source.log" 2>&1 &
+setsid python3 -B "$here/run_vio_stream.py" --vio-dir "$vio" --output-dir "$run/source" --duration 60 --ground-z .001 --mount-calibration "$run/mount.json" --profile --async-diagnostics --reliable-camera --isolated-imu --probe-owned-bridge --min-odom-subscribers 1 > "$run/source.log" 2>&1 &
 source_pid=$!
 for unused in {1..1200}; do
   healthy
@@ -99,7 +111,7 @@ for unused in {1..1200}; do
 done
 kill -0 "$source_pid" 2>/dev/null && { echo 'Source exceeded120s wall bound'; exit 1; }
 wait "$source_pid"
-source_pid=
+# Retain its owned PGID until cleanup, even if the leader has already exited.
 mark after
 observe_for 10
 mark end

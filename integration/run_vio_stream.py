@@ -52,6 +52,7 @@ def main():
     p.add_argument('--async-diagnostics',action='store_true',help='Opt-in: move process-load sampling off frame consumer')
     p.add_argument('--reliable-camera',action='store_true',help='Opt-in: reliable subscription on our RosFrameSource node')
     p.add_argument('--isolated-imu',action='store_true',help='Opt-in: bounded spawned ROS IMU/clock receiver; no timestamp replacement')
+    p.add_argument('--probe-owned-bridge',action='store_true',help='Bounded probe only: keep sensor bridge in the dedicated source process group')
     p.add_argument('--min-odom-subscribers',type=int,default=0)
     p.add_argument('--min-epoch-subscribers',type=int,default=0)
     p.add_argument('--mount-calibration',type=Path,help='Opt-in fixed measured body lever; use IMU, never world GT attitude, for camera depth')
@@ -110,7 +111,7 @@ def main():
     schedule=[(name,lo+a.fault_offset,hi+a.fault_offset) for name,lo,hi in schedule]
     config = dict(duration=a.duration, ground_z=a.ground_z, faults=schedule, started_monotonic_s=started,
                   profile=a.profile,async_diagnostics=a.async_diagnostics,reliable_camera=a.reliable_camera,session=session,
-                  isolated_imu=a.isolated_imu,
+                  isolated_imu=a.isolated_imu,probe_owned_bridge=a.probe_owned_bridge,
                   min_odom_subscribers=a.min_odom_subscribers,min_epoch_subscribers=a.min_epoch_subscribers,
                   horizontal_gt_input=False, external_nav=False, fx=205.4696,
                   gate='3 frames + 250ms, <=200ms sim image age, 500ms wall watchdog',
@@ -430,7 +431,7 @@ def main():
     try:
         data = capture(camera, imu_topic, a.duration, a.output_dir, handle, tick,
                        profile=a.profile,async_diagnostics=a.async_diagnostics,reliable_camera=a.reliable_camera,
-                       isolated_imu=a.isolated_imu)
+                       isolated_imu=a.isolated_imu,probe_owned_bridge=a.probe_owned_bridge)
         for key in ('imu', 'native_imu', 'poses', 'clocks'):
             with (a.output_dir/(key+'.jsonl')).open('x') as f:
                 for row in data[key]:

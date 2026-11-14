@@ -122,6 +122,7 @@ integration/tests/test_permission_deadlines.py
 integration/tests/test_phase1_pipeline.py
 integration/tests/test_reset_safety.py
 integration/tests/test_runtime_candidate.py
+integration/tests/test_source_cleanup.py
 integration/tests/test_source_runtime.py
 integration/tests/test_stage_latency.py
 integration/tests/test_verified_disarmed.py

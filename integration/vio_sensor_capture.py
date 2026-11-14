@@ -52,8 +52,35 @@ def recovery_ready(samples, now, not_before, stable_span=.25, max_gap=.02):
             and all(0<b-a<=max_gap+1e-9 for a,b in zip(recent,recent[1:])))
 
 
+def start_sensor_bridge(command, log, probe_owned=False):
+    """Only the bounded launcher opts into its retained source PGID."""
+    if probe_owned and (os.getpgrp()!=os.getpid() or os.getsid(0)!=os.getpid()):
+        raise RuntimeError('Probe bridge requires a dedicated source session/process group leader')
+    return subprocess.Popen(command,stdout=log,stderr=subprocess.STDOUT,
+                            start_new_session=not probe_owned)
+
+
+def stop_sensor_bridge(bridge, probe_owned=False):
+    if not probe_owned:
+        # Preserve the existing lifecycle of all other capture modes.
+        os.killpg(bridge.pid,signal.SIGTERM)
+        bridge.wait(timeout=5)
+        return
+    # Never signal our own shared group here: it includes the source process.
+    # The bounded launcher retains that PGID and cleans all surviving children,
+    # including if this source is killed before entering its finally block.
+    if bridge.poll() is None:
+        bridge.terminate()
+    try:
+        bridge.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        bridge.kill()
+        bridge.wait(timeout=5)
+
+
 def capture(camera, imu_topic, duration, output_dir, frame_handler=None, tick_handler=None,
-            profile=False, async_diagnostics=False, reliable_camera=False, isolated_imu=False):
+            profile=False, async_diagnostics=False, reliable_camera=False, isolated_imu=False,
+            probe_owned_bridge=False):
     import cv2
     import rclpy
     from rclpy.executors import SingleThreadedExecutor
@@ -85,9 +112,9 @@ def capture(camera, imu_topic, duration, output_dir, frame_handler=None, tick_ha
   subscriber_queue: 4096
 """)
     bridge_log=(output_dir/'clock_bridge.log').open('x')
-    bridge=subprocess.Popen(['ros2','run','ros_gz_bridge','parameter_bridge',
+    bridge=start_sensor_bridge(['ros2','run','ros_gz_bridge','parameter_bridge',
                               '--ros-args','-r','__node:=vio_sensor_bridge','-p','config_file:='+str(bridge_config)],
-                             stdout=bridge_log,stderr=subprocess.STDOUT,start_new_session=True)
+                              bridge_log,probe_owned=probe_owned_bridge)
     source=None; receiver=None; executor=None; thread=None; isolated=None
     load_records=[]; next_load=0.; endpoints=[];camera_endpoints=[];clock_endpoints=[];clock_graph=[]
     buffers['clocks'].publishers=[]
@@ -270,7 +297,7 @@ def capture(camera, imu_topic, duration, output_dir, frame_handler=None, tick_ha
         if thread:thread.join(timeout=3)
         if receiver:receiver.destroy_node()
         if source:source.close()
-        os.killpg(bridge.pid,signal.SIGTERM);bridge.wait(timeout=5);bridge_log.close()
+        stop_sensor_bridge(bridge,probe_owned=probe_owned_bridge);bridge_log.close()
         if shutdown_error is not None:
             with (output_dir/'isolated_shutdown_error.txt').open('x') as error:
                 error.write(str(shutdown_error)+'\n')

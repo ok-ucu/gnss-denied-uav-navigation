@@ -35,6 +35,28 @@ def rows(path):
         return [json.loads(line) for line in source if line.strip()]
 
 
+def witness_evidence(directory):
+    """Completion of closed files, not a source-test or navigation PASS."""
+    directory=Path(directory)
+    try:
+        complete=json.loads((directory/'witness.complete.json').read_text())
+        if complete['run_directory']!=str(directory.resolve()):
+            raise ValueError('Witness completion belongs to a different run directory')
+        meta=json.loads((directory/'witness.json').read_text())
+        required=['native.jsonl','resources.json','witness.json']
+        if meta['failure']:required.append('witness.failed.json')
+        for name in required:
+            path=directory/name
+            if not path.is_file() or path.stat().st_size<=0 or path.stat().st_size!=complete['files'][name]:
+                raise ValueError('Missing, empty or truncated witness evidence: '+name)
+        if meta['failure']:
+            marker=json.loads((directory/'witness.failed.json').read_text())
+            if marker['status']!='FAIL':raise ValueError('Invalid witness failure marker')
+        return dict(status='COMPLETE',scope='File export only; not runtime PASS',run_directory=str(directory.resolve()))
+    except (OSError,KeyError,TypeError,ValueError) as exc:
+        return dict(status='INCOMPLETE',reason=str(exc),run_directory=str(directory.resolve()))
+
+
 def stats(values):
     values = sorted(values)
     if not all(math.isfinite(v) for v in values):
@@ -163,17 +185,28 @@ def witness(directory):
         save(directory/'witness.failed.json',dict(status='FAIL',host=time.monotonic(),reason=str(exc)))
     finally:
         for topic in (CAMERA, IMU, '/clock'):
-            node.unsubscribe(topic)
+            try:node.unsubscribe(topic)
+            except Exception as exc:failure.append('Native unsubscribe failed: '+str(exc))
         time.sleep(.15)
-        with (directory/'native.jsonl').open('x') as output:
-            for row in records:
-                output.write(json.dumps(row)+'\n')
-        save(directory/'resources.json', resources)
-        save(directory/'witness.json', dict(start=started, end=time.monotonic(), failure=failure,
-            expected_system=guard.system, expected_component=guard.component,
-            verified_heartbeats=guard.count, heartbeat_policy='v2-crc-source-role-disarmed-sustained',
-            bad_data=guard.bad_data,
-            cap=300000, count=len(records), time_domain='Linux CLOCK_MONOTONIC seconds'))
+        try:
+            failed=directory/'witness.failed.json'
+            if failure and not failed.exists():
+                save(failed,dict(status='FAIL',host=time.monotonic(),reason='; '.join(failure)))
+            with (directory/'native.jsonl').open('x') as output:
+                for row in records:
+                    output.write(json.dumps(row)+'\n')
+            save(directory/'resources.json', resources)
+            save(directory/'witness.json', dict(start=started, end=time.monotonic(), failure=failure,
+                expected_system=guard.system, expected_component=guard.component,
+                verified_heartbeats=guard.count, heartbeat_policy='v2-crc-source-role-disarmed-sustained',
+                bad_data=guard.bad_data,
+                cap=300000, count=len(records), time_domain='Linux CLOCK_MONOTONIC seconds'))
+            names=['native.jsonl','resources.json','witness.json']+(['witness.failed.json'] if failure else [])
+            save(directory/'witness.complete.json',dict(run_directory=str(directory.resolve()),
+                files={name:(directory/name).stat().st_size for name in names}))
+        except Exception as exc:
+            failure.append('Witness evidence export incomplete: '+str(exc))
+            print(failure[-1],file=sys.stderr,flush=True)
     return 1 if failure else 0
 
 
@@ -407,7 +440,7 @@ def analyze(directory):
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action',choices=['preflight','witness','analyze','mark'])
+    parser.add_argument('action',choices=['preflight','witness','analyze','mark','evidence'])
     parser.add_argument('--directory',type=Path,required=True)
     parser.add_argument('--vio-dir',type=Path)
     parser.add_argument('--phase')
@@ -417,6 +450,10 @@ def main():
         preflight(args.directory,args.vio_dir)
     elif args.action=='witness':
         return witness(args.directory)
+    elif args.action=='evidence':
+        result=witness_evidence(args.directory)
+        print(json.dumps(result),flush=True)
+        return 0 if result['status']=='COMPLETE' else 1
     elif args.action=='analyze':
         result=analyze(args.directory)
         if Path(args.result_name).name!=args.result_name:
