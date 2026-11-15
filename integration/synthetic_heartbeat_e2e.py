@@ -19,6 +19,7 @@ import socket
 import stat
 import subprocess
 import sys
+import threading
 import time
 import uuid
 
@@ -84,6 +85,51 @@ def source_state(deadline):
         selected_source_sha256=manifest)
 
 
+def reap_owned(children, deadline_ns):
+    """Dispose retained fixture handles as ONE bounded batch, not 2s per child.
+
+    Late emergency disposal never extends the workflow D or repairs a failed
+    cleanup receipt. Interrupts are deferred until every handle has been tried.
+    No PID lookup, process/group discovery or group signaling is permitted.
+    """
+    interrupted=[False];main=threading.current_thread() is threading.main_thread()
+    if main:
+        previous=signal.signal(signal.SIGINT,lambda *_:interrupted.__setitem__(0,True))
+    try:
+        result=_reap_owned(children,deadline_ns)
+        if interrupted[0]:result.update(interrupted=True,status='FAIL')
+        return result
+    finally:
+        if main:signal.signal(signal.SIGINT,previous)
+
+
+def _reap_owned(children,deadline_ns):
+    started=host_now();late=started>=deadline_ns
+    until=started+2_000_000_000
+    if not late:until=min(until,deadline_ns)
+    pending=list(children);errors=[];interrupted=False
+    while pending:
+        for child in list(pending):
+            try:
+                child.signal(signal.SIGKILL)
+                if child.process.poll() is not None:pending.remove(child)
+            except KeyboardInterrupt:interrupted=True
+            except Exception as exc:
+                error=child.role+': '+str(exc)
+                if error not in errors:errors.append(error)
+        if not pending or host_now()>=until:break
+        try:time.sleep(min(.005,max(0,(until-host_now())/1e9)))
+        except KeyboardInterrupt:interrupted=True
+    for child in children:
+        try:child.close()
+        except KeyboardInterrupt:interrupted=True
+        except Exception as exc:errors.append(child.role+' close: '+str(exc))
+    return dict(status='FAIL' if pending or errors or interrupted or late else 'PASS',
+        start_ns=started,end_ns=host_now(),disposal_deadline_ns=until,
+        workflow_deadline_ns=deadline_ns,late_emergency_disposal=late,
+        interrupted=interrupted,errors=errors,survivors=[c.role for c in pending])
+
+
 class OwnedChild:
     def __init__(self,role,run_id,deadline,directory,data_fd=None):
         self.role=role;self.key=secrets.token_bytes(32);self.nonce=uuid.uuid4().hex
@@ -92,9 +138,13 @@ class OwnedChild:
               '--control-fd',str(child.fileno())]
         inherited=[child.fileno()]
         if data_fd is not None:args+=['--data-fd',str(data_fd)];inherited.append(data_fd)
-        self.process=subprocess.Popen(args,stdin=subprocess.PIPE,stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,pass_fds=tuple(inherited),start_new_session=True)
+        try:
+            self.process=subprocess.Popen(args,stdin=subprocess.PIPE,stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,pass_fds=tuple(inherited),start_new_session=True)
+        except BaseException:
+            parent.close();child.close();raise
         child.close();self.channel=TestControl(parent,self.key,run_id,'supervisor',role,deadline.end_ns)
+        self.stderr_text=''
         boot=dict(synthetic_only=True,test_id=run_id,deadline_ns=deadline.end_ns,
                   key=self.key.hex(),nonce=self.nonce,directory=str(directory))
         bootstrap_start=host_now()
@@ -115,18 +165,20 @@ class OwnedChild:
                     not bootstrap_start<=self.identity['bootstrap_ns']<=host_now()):
                 raise Blocked('Child bootstrap identity/clock mismatch')
         except BaseException:
-            if self.process.poll() is None:self.process.kill()
-            self.process.wait(timeout=2);self.channel.close();self.process.stdout.close();self.process.stderr.close()
+            reap_owned([self],deadline.end_ns)
             raise
-        self.stderr_text=''
     def signal(self,sig):
         # Retain/reap the direct creation child; never kill a PID from a ledger.
         if self.process.poll() is None:self.process.send_signal(sig)
     def close(self):
         self.channel.close()
-        if self.process.poll() is not None:
-            self.stderr_text=self.process.stderr.read().decode(errors='replace')
-            self.process.stdout.close();self.process.stderr.close()
+        # An inherited pipe held by another process must not block disposal.
+        if not self.process.stderr.closed:
+            os.set_blocking(self.process.stderr.fileno(),False)
+            try:raw=os.read(self.process.stderr.fileno(),65536)
+            except BlockingIOError:raw=b''
+            self.stderr_text=raw.decode(errors='replace')
+        for stream in (self.process.stdin,self.process.stdout,self.process.stderr):stream.close()
 
 
 class SyntheticRecovery:
@@ -247,7 +299,8 @@ class Coordinator:
                                                scenario=self.scenario));child.channel.flush()
         self.source_socket,ingress_socket=self.peer.connect_owned(self.deadline);self.resources+=[self.source_socket]
         proxy_socket,witness_socket=self.downstream.connect_owned(self.deadline)
-        proxy_reader,proxy_writer=one_way_pipe();self.resources.append(proxy_writer)
+        self.resources.extend((proxy_socket,witness_socket))
+        proxy_reader,proxy_writer=one_way_pipe();self.resources.extend((proxy_reader,proxy_writer))
         self.proxy_log=EventJournal(self.root/'proxy.jsonl',self.test_id,clock=host_now);self.logs.append(self.proxy_log)
         self.collector_log=EventJournal(self.root/'collector.jsonl',self.test_id,clock=host_now);self.logs.append(self.collector_log)
         self.collector_log.emit('started',scope='synthetic-owned peer only')
@@ -364,20 +417,36 @@ class Coordinator:
     def teardown(self):
         # Independent creator authority for test fixture disposal, including a
         # deliberate primary cleanup failure. Never changes the failed receipt.
-        for child in [*self.children.values(),*([self.foreign] if self.foreign else [])]:
-            child.signal(signal.SIGKILL)
-        for child in [*self.children.values(),*([self.foreign] if self.foreign else [])]:
-            child.process.wait(timeout=2);child.close()
-        durable_new(self.root/'process_exit.json',dict(test_id=self.test_id,
-            scope='actual local Popen fixture exits; not native containment',
-            children={r:dict(pid=c.process.pid,exit_code=c.process.returncode,stderr=c.stderr_text)
-                      for r,c in self.children.items()},
-            foreign_fixture_exit_code=self.foreign.process.returncode if self.foreign else None))
-        for resource in self.resources:
-            try:resource.close()
-            except OSError:pass
-        for peer in (self.peer,self.downstream):
-            if peer:peer.close()
+        children=[*self.children.values(),*([self.foreign] if self.foreign else [])]
+        self.teardown_result=reap_owned(children,self.deadline.end_ns)
+        try:
+            # Observation may have been interrupted before primary cleanup.
+            # Finalize only genuine failure evidence; never create a PASS marker.
+            try:
+                if self.witness and not self.witness.closed:
+                    self.witness.fail('WORKFLOW_ABORTED','Interrupted before primary cleanup completed')
+                    self.witness.finish()
+                if self.proxy:self.proxy.close()
+            except KeyboardInterrupt:
+                self.teardown_result.update(interrupted=True,status='FAIL')
+            except Exception as exc:
+                self.teardown_result['errors'].append('resource finalization: '+str(exc))
+                self.teardown_result['status']='FAIL'
+            finally:
+                if self.witness:self.witness.journal.close()
+            durable_new(self.root/'process_exit.json',dict(test_id=self.test_id,
+                scope='actual local Popen fixture exits; not native containment',
+                teardown=self.teardown_result,
+                children={r:dict(pid=c.process.pid,exit_code=c.process.returncode,stderr=c.stderr_text)
+                          for r,c in self.children.items()},
+                foreign_fixture_exit_code=self.foreign.process.returncode if self.foreign else None))
+        finally:
+            for resource in self.resources:
+                try:resource.close()
+                except OSError:pass
+            for peer in (self.peer,self.downstream):
+                if peer:peer.close()
+        if self.teardown_result['interrupted']:raise KeyboardInterrupt()
 
 
 def run_synthetic(directory,scenario='normal',budget_seconds=20):
@@ -385,17 +454,23 @@ def run_synthetic(directory,scenario='normal',budget_seconds=20):
     owner=Coordinator(directory,scenario,budget_seconds);cleanup={'status':'INCOMPLETE'}
     evidence={'status':'INCOMPLETE'};foreign=False;failure=None
     try:
-        owner.setup();owner.observe()
-    except Exception as exc:
-        owner.failure='OWNERSHIP_MISMATCH' if scenario=='ownership_mismatch' else 'WORKFLOW_EXCEPTION'
-        owner.event('exception',reason=str(exc))
-    try:
-        if owner.ledger:cleanup=owner.cleanup()
-        foreign=owner.foreign is not None and owner.foreign.process.poll() is None
-        owner.event('cleanup_result',status=cleanup['status'],foreign_preserved=foreign,
-                    alive_at_terminal=owner.alive_at_terminal)
-    finally:
-        owner.teardown()
+        try:
+            try:
+                owner.setup();owner.observe()
+            except Exception as exc:
+                owner.failure='OWNERSHIP_MISMATCH' if scenario=='ownership_mismatch' else 'WORKFLOW_EXCEPTION'
+                owner.event('exception',reason=str(exc))
+            if owner.ledger:cleanup=owner.cleanup()
+            foreign=owner.foreign is not None and owner.foreign.process.poll() is None
+            owner.event('cleanup_result',status=cleanup['status'],foreign_preserved=foreign,
+                        alive_at_terminal=owner.alive_at_terminal)
+        finally:
+            owner.teardown()
+    except BaseException:
+        # Includes Ctrl+C during setup, observation, cleanup AND reaping. Never
+        # export a positive result for an interrupted or exceptional workflow.
+        for log in [*owner.logs,owner.watchdog_log,owner.auth_log,owner.trace]:log.close()
+        raise
     try:
         publisher=None
         if scenario=='partial_export':
@@ -414,6 +489,7 @@ def run_synthetic(directory,scenario='normal',budget_seconds=20):
     all_exited=all(c.process.poll() is not None for c in owner.children.values())
     heartbeat='PASS' if owner.witness and owner.witness.failure_code=='HEARTBEAT_STALE' and owner.triggered else 'FAIL'
     failures=[owner.failure] if owner.failure else []
+    if owner.teardown_result['status']!='PASS':failures.append('Fixture teardown failed')
     if cleanup['status']=='FAIL' or not foreign or not all_exited:failures.append('Cleanup/foreign preservation violation')
     if host_now()>=owner.deadline.end_ns:failures.append('Immutable deadline exceeded')
     status='FAIL' if failures else ('PASS' if heartbeat=='PASS' and cleanup['status']=='PASS' and evidence['status']=='PASS' else 'INCOMPLETE')
@@ -427,6 +503,7 @@ def run_synthetic(directory,scenario='normal',budget_seconds=20):
             witness_component_exit_code=1 if owner.witness and owner.witness.failure_code else None,
             source_continuity='NOT TESTED'),cleanup=dict(status=cleanup['status'],alive_at_terminal=owner.alive_at_terminal,
             foreign_preserved_through_cleanup=foreign,all_fixture_children_reaped=all_exited),
+        teardown=owner.teardown_result,
         evidence=dict(status=evidence['status'],evaluated_copy=scenario in ('incomplete_evidence','corrupted_evidence')),
         supervision=dict(recovery_requests=owner.manager.requests,authority='synthetic Popen fixture only',
                          native_manager_owned_recovery='NOT TESTED'),

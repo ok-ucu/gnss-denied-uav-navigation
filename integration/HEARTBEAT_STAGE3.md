@@ -93,6 +93,26 @@ PYTHONPATH=integration:integration/tests python3 -B -m unittest discover \
 
 Run a new directory per scenario. Loopback bind permission is necessary for real
 synthetic TCP tests; denied bind is an environment failure, never mock PASS.
+The scenario matrix runs 14 cases sequentially, including real readiness/stale
+waits and an intentional 12-second deadline failure. A measured offline matrix
+took about 73 seconds; quiet unittest output previously looked like a hang.
+Each case now prints START/END, elapsed seconds, verdict, child exit codes and
+teardown details. For a separately bounded targeted run on Linux (GNU timeout):
+
+```bash
+timeout --signal=TERM --kill-after=5s 180s env PYTHONPATH=integration:integration/tests \
+  python3 -u -B -m unittest test_heartbeat_e2e -v
+```
+
+Timeout exit 124/137 is a failed external bound, never a synthetic PASS. SIGKILL
+of the coordinator cannot run Python teardown; native independent recovery is
+still BLOCKED. The external timeout is only a test-run bound, not recovery proof.
+Ordinary exceptions and Ctrl+C now enter fixture teardown even during startup
+or observation. Reaping has one shared 2-second cap, bounded by the original D
+while D remains live; interrupts are deferred until all owned handles are tried.
+After an already-expired D, a separately recorded maximum 2-second emergency
+disposal may reap fixture children, but D stays unchanged and the result is FAIL.
+Survivors, signal/reap errors or interrupted teardown cannot produce PASS.
 CLI exit 0 = scoped synthetic test PASS; 1 = FAIL; 2 = INCOMPLETE.
 The expected witness component exit is 1 even when the overall expected-failure
 test passes. `source_continuity=NOT TESTED` always. Do not interpret any of these

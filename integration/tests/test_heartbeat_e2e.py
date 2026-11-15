@@ -5,6 +5,7 @@ import os
 import subprocess
 import sys
 import shutil
+import signal
 import socket
 import tempfile
 import time
@@ -14,7 +15,8 @@ from unittest.mock import patch
 from heartbeat_test_owner import Blocked
 from heartbeat_witness import witness_only
 from linux_gpu.heartbeat_test import StartupBarrier
-from synthetic_heartbeat_e2e import Coordinator,NATIVE,SCENARIOS,export_report,host_now,run_synthetic,verify_synthetic
+from synthetic_heartbeat_e2e import (Coordinator,NATIVE,SCENARIOS,OwnedChild,export_report,
+    host_now,reap_owned,run_synthetic,verify_synthetic)
 from synthetic_heartbeat_ipc import AuthenticationFailure,TestControl
 from test_heartbeat_test_owner import fixture
 from test_heartbeat_witness import plan_for
@@ -75,10 +77,22 @@ class SyntheticBoundaryTests(unittest.TestCase):
 
 
 class IntegratedSyntheticTests(unittest.TestCase):
+    def run_case(self,root,scenario,budget=20):
+        started=host_now();report=None
+        print('\n  START scenario='+scenario+' budget='+str(budget)+'s',file=sys.stderr,flush=True)
+        try:
+            report=run_synthetic(root,scenario,budget)
+            return report
+        finally:
+            exits=root/'process_exit.json'
+            codes={role:row['exit_code'] for role,row in json.loads(exits.read_text())['children'].items()} if exits.exists() else {}
+            print('  END '+json.dumps(dict(scenario=scenario,elapsed_seconds=round((host_now()-started)/1e9,3),
+                status=report['status'] if report else 'EXCEPTION',exit_codes=codes,
+                teardown=report.get('teardown') if report else None)),file=sys.stderr,flush=True)
     def test_complete_expected_failure_and_portable_copy(self):
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp)/'normal'
-            report=run_synthetic(root,'normal',20)
+            report=self.run_case(root,'normal')
             self.assertEqual(report['status'],'PASS',report)
             self.assertEqual(report['heartbeat_loss']['observed_code'],'HEARTBEAT_STALE')
             self.assertEqual(report['heartbeat_loss']['witness_component_exit_code'],1)
@@ -101,11 +115,12 @@ class IntegratedSyntheticTests(unittest.TestCase):
             if scenario=='normal':continue
             with self.subTest(scenario=scenario),tempfile.TemporaryDirectory() as temp:
                 root=Path(temp)/scenario
-                report=run_synthetic(root,scenario,12 if scenario=='cleanup_deadline_exceeded' else 20)
+                report=self.run_case(root,scenario,12 if scenario=='cleanup_deadline_exceeded' else 20)
                 wanted='INCOMPLETE' if scenario in expected_incomplete else 'FAIL'
                 compact={k:report[k] for k in ('scenario','status','failures','heartbeat_loss','cleanup','evidence','supervision','timeline')}
                 self.assertEqual(report['status'],wanted,compact)
                 self.assertTrue(report['cleanup']['all_fixture_children_reaped'],report)
+                self.assertFalse(report['teardown']['survivors'],report)
                 self.assertTrue(report['cleanup']['foreign_preserved_through_cleanup'],report)
                 self.assertEqual(report['linux_native'],NATIVE)
                 self.assertFalse((root/'synthetic.complete.json').exists())
@@ -123,6 +138,110 @@ class IntegratedSyntheticTests(unittest.TestCase):
                     receipt=json.loads((root/'cleanup.receipt.json').read_text())
                     events=[json.loads(line) for line in (root/receipt['events']['path']).read_text().splitlines()]
                     self.assertFalse(any(row['action'] in ('term','kill') for row in events))
+
+
+class TeardownTests(unittest.TestCase):
+    def assert_reaped(self,owner):
+        for child in [*owner.children.values(),*([owner.foreign] if owner.foreign else [])]:
+            self.assertIsNotNone(child.process.returncode,child.role)
+            self.assertIsNotNone(child.process.poll(),child.role)
+            self.assertTrue(child.process.stdout.closed,child.role)
+            self.assertTrue(child.process.stderr.closed,child.role)
+
+    def test_observation_interrupt_timeout_and_cleanup_exception_reap_every_child(self):
+        # The unrelated control is NOT in any coordinator's creation ledger.
+        foreign=subprocess.Popen([sys.executable,'-c','import time; time.sleep(30)'])
+        try:
+            for mode in ('interrupt','timeout','cleanup_exception'):
+                with self.subTest(mode=mode),tempfile.TemporaryDirectory() as temp:
+                    seen=[];setup=Coordinator.setup
+                    def started(owner):
+                        seen.append(owner);setup(owner)
+                    def observe(owner):
+                        if mode=='interrupt':raise KeyboardInterrupt()
+                        if mode=='timeout':owner.children['worker'].process.wait(timeout=.01)
+                    with patch.object(Coordinator,'setup',started),patch.object(Coordinator,'observe',observe):
+                        if mode=='cleanup_exception':
+                            with patch.object(Coordinator,'cleanup',side_effect=RuntimeError('Injected cleanup error')):
+                                with self.assertRaises(RuntimeError):run_synthetic(Path(temp)/mode)
+                        elif mode=='interrupt':
+                            with self.assertRaises(KeyboardInterrupt):run_synthetic(Path(temp)/mode)
+                        else:
+                            report=run_synthetic(Path(temp)/mode)
+                            self.assertEqual(report['status'],'FAIL')
+                            self.assertIn('WORKFLOW_EXCEPTION',report['failures'])
+                    owner=seen[0];self.assert_reaped(owner)
+                    self.assertFalse((owner.root/'synthetic.complete.json').exists())
+                    self.assertIsNone(foreign.poll(),'Unrelated process must survive')
+        finally:
+            foreign.kill();foreign.wait(timeout=2)
+
+    def test_interrupt_while_reaping_is_deferred_until_siblings_are_reaped(self):
+        with tempfile.TemporaryDirectory() as temp:
+            owner=Coordinator(Path(temp)/'interrupt','normal',20)
+            try:
+                for role in ('launcher','worker','control'):
+                    owner.children[role]=OwnedChild(role,owner.test_id,owner.deadline,owner.root)
+                process=owner.children['launcher'].process;poll=process.poll;first=[True]
+                previous=signal.getsignal(signal.SIGINT)
+                def interrupted_poll():
+                    if first[0]:first[0]=False;os.kill(os.getpid(),signal.SIGINT)
+                    return poll()
+                with patch.object(process,'poll',interrupted_poll):
+                    with self.assertRaises(KeyboardInterrupt):owner.teardown()
+                self.assert_reaped(owner)
+                self.assertEqual(signal.getsignal(signal.SIGINT),previous)
+                receipt=json.loads((owner.root/'process_exit.json').read_text())
+                self.assertTrue(receipt['teardown']['interrupted'])
+                self.assertEqual(receipt['teardown']['status'],'FAIL')
+                self.assertEqual(receipt['teardown']['workflow_deadline_ns'],owner.deadline.end_ns)
+            finally:
+                reap_owned(list(owner.children.values()),owner.deadline.end_ns)
+                for log in (owner.trace,owner.auth_log,owner.watchdog_log):log.close()
+
+    def test_delayed_reap_and_timeout_are_bounded_without_per_child_windows(self):
+        with tempfile.TemporaryDirectory() as temp:
+            owner=Coordinator(Path(temp)/'delayed','normal',20)
+            try:
+                children=[OwnedChild(role,owner.test_id,owner.deadline,owner.root) for role in ('launcher','worker')]
+                owner.children={c.role:c for c in children}
+                delayed=children[0].process;poll=delayed.poll;ready=host_now()+150_000_000
+                with patch.object(delayed,'poll',lambda:None if host_now()<ready else poll()):
+                    result=reap_owned(children,owner.deadline.end_ns)
+                self.assertEqual(result['status'],'PASS',result);self.assert_reaped(owner)
+                self.assertLess(result['end_ns']-result['start_ns'],2_000_000_000)
+            finally:
+                reap_owned(list(owner.children.values()),owner.deadline.end_ns)
+                for log in (owner.trace,owner.auth_log,owner.watchdog_log):log.close()
+
+    def test_surviving_child_timeout_is_fail_and_later_disposal_does_not_rewrite_it(self):
+        with tempfile.TemporaryDirectory() as temp:
+            owner=Coordinator(Path(temp)/'survivor','normal',20)
+            child=OwnedChild('worker',owner.test_id,owner.deadline,owner.root)
+            try:
+                with patch.object(child,'signal',return_value=None):
+                    result=reap_owned([child],host_now()+50_000_000)
+                self.assertEqual(result['status'],'FAIL')
+                self.assertEqual(result['survivors'],['worker'])
+            finally:
+                disposal=reap_owned([child],owner.deadline.end_ns)
+                self.assertEqual(disposal['status'],'PASS',disposal)
+                for log in (owner.trace,owner.auth_log,owner.watchdog_log):log.close()
+            self.assertEqual(result['status'],'FAIL')
+            self.assertIsNotNone(child.process.returncode)
+
+    def test_bootstrap_exception_reaps_partially_constructed_child(self):
+        with tempfile.TemporaryDirectory() as temp:
+            owner=Coordinator(Path(temp)/'bootstrap','normal',20);created=[];popen=subprocess.Popen
+            def spawn(*args,**kwargs):
+                child=popen(*args,**kwargs);created.append(child);return child
+            try:
+                with patch('synthetic_heartbeat_e2e.subprocess.Popen',spawn), \
+                     patch('synthetic_heartbeat_e2e.parse_json',side_effect=ValueError('Injected malformed bootstrap')):
+                    with self.assertRaises(ValueError):OwnedChild('worker',owner.test_id,owner.deadline,owner.root)
+                self.assertEqual(len(created),1);self.assertIsNotNone(created[0].returncode)
+            finally:
+                for log in (owner.trace,owner.auth_log,owner.watchdog_log):log.close()
 
 
 if __name__=='__main__':unittest.main()
