@@ -49,11 +49,12 @@ class SourceRuntimeTests(unittest.TestCase):
         vendor=Path(temp.name)/'10_nvidia.json';vendor.write_text(VENDOR_JSON)
         names=['gnss-gpu-physics-unit','gnss-gpu-fcu-unit'];project='gnss-gpu-unit'
         plan=dict(names=names,partition=project,ros_domain=123,egl_vendor=str(vendor))
-        records=[dict(Id=name+'-id',Name='/'+name,State=dict(Running=True),
+        records=[dict(Id=str(index+1)*64,Name='/'+name,Created='fixture-created',Image='sha256:fixture',
+            State=dict(Running=True,Paused=False,Restarting=False,Pid=100+index),
             Config=dict(Labels={'com.docker.compose.project':project},Env=[]),
             HostConfig=dict(RestartPolicy=dict(Name='no'),PortBindings={},PublishAllPorts=False),
             Mounts=[dict(Destination='/opt/integration',Source=str(runtime.ROOT),RW=False),
-                    dict(Destination='/run/integration',Source='/new-run',RW=True)]) for name in names]
+                    dict(Destination='/run/integration',Source='/new-run',RW=True)]) for index,name in enumerate(names)]
         records[0]['HostConfig']['NanoCpus']=3_000_000_000
         records[0]['NetworkSettings']=dict(Networks={project:{}})
         records[1]['HostConfig']['NetworkMode']='container:'+records[0]['Id']
@@ -86,24 +87,57 @@ class SourceRuntimeTests(unittest.TestCase):
     def test_collection_error_does_not_skip_stop_and_foreign_owner_never_stopped(self):
         records,plan=self.fixture();calls=[]
         def inspect(cmd,**kwargs):
-            selected=[r for r in records if r['Name'].lstrip('/')==cmd[-1]]
-            return subprocess.CompletedProcess(cmd,0,json.dumps(selected))
+            selected=[r for r in records if cmd[-1] in (r['Name'].lstrip('/'),r['Id'])]
+            if any(c[1]=='stop' for c in calls):
+                selected=[dict(r,State=dict(Running=False,Paused=False,Restarting=False,Pid=0)) for r in selected]
+            return subprocess.CompletedProcess(cmd,0,json.dumps(selected),'')
         def call(cmd,*_):
             calls.append(cmd)
             if cmd[1]=='logs':raise RuntimeError('collection failed')
-        stopped=[dict(r,State=dict(Running=False)) for r in records]
-        def final(cmd,**kwargs):return json.dumps([r for r in stopped if r['Id']==cmd[-1]])
         with tempfile.TemporaryDirectory() as temp, \
-             patch.object(runtime.subprocess,'run',side_effect=inspect), \
-             patch.object(runtime.subprocess,'check_output',side_effect=final):
-            errors=runtime.stop_owned(plan['names'],plan['partition'],Path(temp),call)
+             patch.object(runtime.subprocess,'run',side_effect=inspect):
+            errors=runtime.stop_owned(plan['names'],plan['partition'],Path(temp),call,records)
             self.assertEqual(len(errors),2)
             self.assertEqual([c[-1] for c in calls if c[1]=='stop'],[r['Id'] for r in reversed(records)])
             final_rows=json.loads((Path(temp)/'source-owned-final.json').read_text())
             self.assertTrue(all(not r['State']['Running'] for r in final_rows))
             calls.clear();records[0]['Config']['Labels']['com.docker.compose.project']='foreign'
-            with self.assertRaises(RuntimeError):runtime.stop_owned(plan['names'],plan['partition'],Path(temp),call)
+            with self.assertRaises(RuntimeError):runtime.stop_owned(plan['names'],plan['partition'],Path(temp),call,records)
             self.assertEqual(calls,[])
+
+    def test_cleanup_inspect_error_missing_original_or_replacement_never_pass(self):
+        records,plan=self.fixture()
+        for mode in ('inspect-error','replacement','missing-initial'):
+            calls=[]
+            def inspect(cmd,**kwargs):
+                if mode=='inspect-error':return subprocess.CompletedProcess(cmd,1,'','daemon error')
+                rows=[copy.deepcopy(r) for r in records if cmd[-1] in (r['Id'],r['Name'].lstrip('/'))]
+                if mode=='replacement' and cmd[-1]==plan['names'][0]:rows[0]['Id']='f'*64
+                return subprocess.CompletedProcess(cmd,0,json.dumps(rows),'')
+            with self.subTest(mode=mode),tempfile.TemporaryDirectory() as temp, \
+                 patch.object(runtime.subprocess,'run',side_effect=inspect),self.assertRaises(RuntimeError):
+                runtime.stop_owned(plan['names'],plan['partition'],Path(temp),
+                    lambda *args:calls.append(args),None if mode=='missing-initial' else records)
+            self.assertEqual(calls,[])
+
+    def test_final_inspect_failure_is_not_success(self):
+        records,plan=self.fixture();stops=[]
+        def inspect(cmd,**kwargs):
+            if len(stops)==2:return subprocess.CompletedProcess(cmd,1,'','lost API')
+            rows=[r for r in records if cmd[-1] in (r['Id'],r['Name'].lstrip('/'))]
+            return subprocess.CompletedProcess(cmd,0,json.dumps(rows),'')
+        def call(cmd,*args):
+            if cmd[1]=='stop':stops.append(cmd[-1])
+        with tempfile.TemporaryDirectory() as temp,patch.object(runtime.subprocess,'run',side_effect=inspect):
+            errors=runtime.stop_owned(plan['names'],plan['partition'],Path(temp),call,records)
+            self.assertEqual(len(stops),2)
+            self.assertTrue(any('INCOMPLETE final inspect' in error for error in errors))
+            self.assertEqual(runtime.cleanup_status(errors),'INCOMPLETE')
+
+    def test_cleanup_unknown_proof_is_incomplete_and_violation_is_fail(self):
+        self.assertEqual(runtime.cleanup_status([]),'PASS')
+        self.assertEqual(runtime.cleanup_status(['inspect unavailable']),'INCOMPLETE')
+        self.assertEqual(runtime.cleanup_status(['inspect unavailable','FAIL: surviving container']),'FAIL')
 
     def test_existing_container_is_rejected_before_any_start_or_stop(self):
         _,plan=self.fixture()

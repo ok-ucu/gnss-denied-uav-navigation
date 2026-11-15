@@ -16,6 +16,7 @@ import time
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from linux_gpu import run_camera, prepare_vio
+from heartbeat_test_owner import ContainerIdentity, DockerByIdentity
 
 
 def recorded_command(evidence, audit, cmd, label, timeout=30):
@@ -189,33 +190,57 @@ def validate_runtime(records, plan, run):
     return ids
 
 
-def stop_owned(names, project, evidence, call):
-    """Collection errors cannot skip stop. Retain containers/network/evidence."""
-    records=[];errors=[]
-    for name in names:
-        found=subprocess.run(['docker','inspect',name],capture_output=True,text=True,timeout=10)
-        if found.returncode==0:records.extend(json.loads(found.stdout))
-    # A foreign/mismatched record must never be stopped.
-    ids=owned_ids(records,project,[r['Name'].lstrip('/') for r in records])
-    if any(r['Name'].lstrip('/') not in names for r in records):
-        raise RuntimeError('Unexpected owned name')
+def stop_owned(names, project, evidence, call, initial_records):
+    """Legacy runtime correction, NOT Stage 1 independent recovery.
+
+    Original full IDs are mandatory. Inspect errors/unknown final state never
+    mean stopped. Stage 1's separate controller owns its single global deadline;
+    this legacy launcher still has its original per-operation bounds.
+    """
+    if not initial_records:raise RuntimeError('INCOMPLETE: original container IDs unavailable')
+    owned_ids(initial_records,project,names)
+    identities=[ContainerIdentity.capture(row) for row in initial_records]
+    docker=DockerByIdentity();records=[];errors=[]
+    # Check the ENTIRE expected set before acting. A same-name replacement must
+    # not be adopted, even if its Compose label/restart policy match.
+    for identity in identities:
+        records.append(docker.verify(identity,time.monotonic_ns()+10_000_000_000))
+    owned_ids(records,project,names)
     for row in records:
         try:call(['docker','logs',row['Id']],'source-log-'+row['Name'].lstrip('/'))
         except Exception as exc:errors.append(str(exc))
-    for container in reversed(ids):
-        try:call(['docker','stop','--timeout','8',container],'source-stop-'+container[:12],25)
+    for identity in reversed(identities):
+        container=identity.full_id
+        try:
+            docker.verify(identity,time.monotonic_ns()+10_000_000_000)
+            call(['docker','stop','--timeout','8',container],'source-stop-'+container[:12],25)
         except Exception as exc:
             errors.append(str(exc))
             # Even a full evidence filesystem must not prevent an owned stop.
-            retry=subprocess.run(['docker','stop','--timeout','8',container],capture_output=True,timeout=25)
-            if retry.returncode:errors.append('Fallback stop failed: '+container)
+            # Revalidate identity again; never retry via a container name.
+            try:docker.stop(identity,time.monotonic_ns()+25_000_000_000)
+            except Exception as retry:errors.append('Fallback stop failed: '+str(retry))
     final_records=[]
-    for row in records:
-        final=json.loads(subprocess.check_output(['docker','inspect',row['Id']],text=True))[0]
-        final_records.append(final)
-        if final['State']['Running']:errors.append('Still running: '+row['Id'])
+    for identity in identities:
+        try:
+            final=docker.verify(identity,time.monotonic_ns()+10_000_000_000)
+            final_records.append(final)
+            state=final['State']
+            if (any(state.get(key) is True for key in ('Running','Paused','Restarting')) or
+                    type(state.get('Pid')) is int and state['Pid']>0):
+                errors.append('FAIL: surviving container: '+identity.full_id)
+            elif (any(state.get(key) is not False for key in ('Running','Paused','Restarting')) or
+                    state.get('Pid')!=0):
+                errors.append('INCOMPLETE terminal container state: '+identity.full_id)
+        except Exception as exc:errors.append('INCOMPLETE final inspect: '+str(exc))
     (evidence/'source-owned-final.json').write_text(json.dumps(final_records,indent=2)+'\n')
     return errors
+
+
+def cleanup_status(errors):
+    """An observed violation remains FAIL even if other evidence is missing."""
+    if any(error.startswith('FAIL:') for error in errors):return 'FAIL'
+    return 'INCOMPLETE' if errors else 'PASS'
 
 
 def execute(run, plan, compose, run_probe):
@@ -234,7 +259,7 @@ def execute(run, plan, compose, run_probe):
         recorded_command(evidence,audit,cmd,label,timeout)
     def shell(code,label,timeout=30):
         call(['docker','exec',physics,'bash','-lc','set -e; source /opt/ros/jazzy/setup.bash; '+code],label,timeout)
-    attempted=False
+    attempted=False;initial_records=None
     try:
         images=[]
         for name in (json.loads((run/'PREPARATION.json').read_text())[k] for k in ('camera_image','fcu_image')):
@@ -246,10 +271,12 @@ def execute(run, plan, compose, run_probe):
         attempted=True
         call(compose+['up','-d','--no-build','--pull','never'],'source-up',60)
         records=json.loads(subprocess.check_output(['docker','inspect',*names],text=True))
+        # Record original immutable IDs before any later validation can fail.
+        initial_records=records
+        (evidence/'source-owned-before.json').write_text(json.dumps(records,indent=2)+'\n')
         validate_runtime(records,plan,run)
         network=json.loads(subprocess.check_output(['docker','network','inspect',project],text=True))[0]
         if not network['Internal']:raise RuntimeError('Internal Docker network required')
-        (evidence/'source-owned-before.json').write_text(json.dumps(records,indent=2)+'\n')
         if any(not r['State']['Running'] for r in records):raise RuntimeError('Runtime exited at startup')
         imports=("import sys; sys.path.insert(0,'/run/integration/artifacts/vio'); "
                  "import cv2, numpy, rclpy, gz.transport13; "
@@ -308,13 +335,13 @@ def execute(run, plan, compose, run_probe):
         errors=[]
         if attempted:
             try:
-                errors=stop_owned(names,project,evidence,call)
+                errors=stop_owned(names,project,evidence,call,initial_records)
             except Exception as exc:errors.append(str(exc))
-        result['cleanup']='FAIL' if errors else 'PASS'
+        result['cleanup']=cleanup_status(errors)
         result['cleanup_errors']=errors
         (evidence/'SOURCE_RUNTIME_RESULT.json').write_text(json.dumps(result,indent=2)+'\n')
         audit.close()
-        if errors:raise RuntimeError('Owned runtime cleanup failed: '+str(errors))
+        if errors:raise RuntimeError('Owned runtime cleanup '+result['cleanup']+': '+str(errors))
 
 
 def main():

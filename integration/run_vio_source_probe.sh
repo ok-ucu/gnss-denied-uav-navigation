@@ -2,6 +2,13 @@
 # Run INSIDE the existing Linux GPU Gazebo container. Source-only; no FCU writes.
 # Usage: bash /opt/integration/run_vio_source_probe.sh RUN_ID /opt/integration/linux_gpu_runs/VIO_EXPORT
 set -euo pipefail
+if [[ "${1:-}" == --witness-only ]]; then
+  # Branch before ALL legacy Linux/ROS/VIO checks, traps, fixture and ON-phase.
+  # This admission entrypoint cannot connect while native recovery is BLOCKED.
+  shift
+  witness_here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  exec python3 -B "$witness_here/heartbeat_witness.py" "$@"
+fi
 [[ "$(uname -s)" == Linux ]] || { echo 'Linux GPU runtime required; no Mac simulation'; exit 2; }
 [[ $# == 2 && "$1" =~ ^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$ ]] || { echo 'Require RUN_ID and pinned VIO directory'; exit 2; }
 [[ "${ROS_DOMAIN_ID:-}" =~ ^[0-9]+$ && "${ROS_DOMAIN_ID}" -gt 0 && "${ROS_DOMAIN_ID}" -le 232 ]] || { echo 'Require dedicated nonzero ROS_DOMAIN_ID'; exit 2; }

@@ -40,6 +40,12 @@ def witness_evidence(directory):
     directory=Path(directory)
     try:
         complete=json.loads((directory/'witness.complete.json').read_text())
+        if isinstance(complete,dict) and complete.get('schema')==2:
+            from heartbeat_test_evidence import verify_witness
+            try:verify_witness(directory,complete['test_id'])
+            except Exception as exc:return dict(status='INCOMPLETE',reason=str(exc))
+            return dict(status='COMPLETE',scope='Hashed witness export only; not runtime PASS',
+                        test_id=complete['test_id'])
         if complete['run_directory']!=str(directory.resolve()):
             raise ValueError('Witness completion belongs to a different run directory')
         meta=json.loads((directory/'witness.json').read_text())
