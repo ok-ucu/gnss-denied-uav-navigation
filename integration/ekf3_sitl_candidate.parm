@@ -1,0 +1,23 @@
+# REVIEW ONLY. ArduCopter4.4.4 isolated-copy candidate. Never auto-apply.
+# Horizontal ExternalNav; retain baro and compass. GT-height VIO is a test aid.
+AHRS_EKF_TYPE 3
+EK3_ENABLE 1
+# Fuse only the selected source set; prevent other velocity sets from mixing.
+EK3_SRC_OPTIONS 0
+EK3_SRC1_POSXY 6
+EK3_SRC1_VELXY 6
+EK3_SRC1_POSZ 1
+EK3_SRC1_VELZ 0
+EK3_SRC1_YAW 1
+VISO_TYPE 1
+VISO_SCALE 1
+VISO_ORIENT 0
+# Input is already body-referenced; do not apply camera lever arm twice.
+VISO_POS_X 0
+VISO_POS_Y 0
+VISO_POS_Z 0
+# 4.4.4 uses GPS_TYPE, not GPS1_TYPE. Apply only to a separate disposable FCU.
+GPS_TYPE 0
+GPS_TYPE2 0
+# Intentionally no calibrated VISO_DELAY_MS/VEL_M_NSE/POS_M_NSE/YAW_M_NSE here.
+# They require measured timing/noise and explicit approval; defaults are not calibration.
