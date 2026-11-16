@@ -1,9 +1,10 @@
-"""One real ROS -> patched MAVROS -> wire interlock, CAPTURE ONLY.
+"""One real ROS -> patched MAVROS -> wire interlock, CAPTURE ONLY by default.
 
-Only MAVROS TIMESYNC packets may reach the new FCU. This probe also sends its
+By default only MAVROS TIMESYNC packets may reach the new FCU. This probe also sends its
 own fixed read-only parameter queries and SYSTEM_TIME requests. There is no
-vision-forward switch. Shadow reference authorization is diagnostic-only and
-cannot become an FCU reference or flight GO. Persistent stores survive restart.
+default vision route. --simulation-vision-permit enables only an explicitly
+inspected DISARMED Gazebo/SITL namespace, never production/flight authority.
+Persistent stores survive restart. MAVROS still connects ONLY to this interlock.
 """
 import argparse
 from collections import OrderedDict
@@ -59,13 +60,15 @@ def common_watermark(anchors,ros_clock_ns):
     return next((a for a in reversed(anchors) if a['source_ns']<=ros_clock_ns),None)
 
 
-def prepared_firmware_digest(run,identity):
-    if identity.get('runtime_admitted',True) is not True:
+def prepared_firmware_digest(run,identity,simulation_route=None):
+    if identity.get('runtime_admitted',True) is not True and simulation_route is None:
         raise ValueError('Runtime candidate is not admitted; capture transport remains closed')
     binary=(run/'artifacts/arducopter') if 'firmware_sha256' in identity else Path('/opt/integration/isolated_blockers/20261109_a/evidence/arducopter_patched')
     digest=hashlib.sha256(binary.read_bytes()).hexdigest()
     if 'firmware_sha256' in identity and identity['firmware_sha256']!=digest:
         raise ValueError('Prepared firmware changed')
+    if simulation_route is not None and not simulation_route.accepts_firmware(digest):
+        raise ValueError('Simulation firmware pin mismatch')
     return digest
 
 
@@ -77,6 +80,7 @@ def main():
     p.add_argument('--initialize-capture-reference',help='Explicit NEW diagnostic reference UUID; never FCU authorization')
     p.add_argument('--fault-file',type=Path,help='Labelled local capture fault control')
     p.add_argument('--mavros-pid-file',type=Path,help='Owned local MAVROS PID, monitored fail-closed on process death')
+    p.add_argument('--simulation-vision-permit',type=Path,help='Explicit run-bound DISARMED Gazebo/SITL permit; default has NO vision FCU route')
     a=p.parse_args()
     if Path(a.output_name).name!=a.output_name:raise ValueError('Output name must be a basename')
     out=a.run/'evidence'/a.output_name;out.mkdir(exist_ok=False)
@@ -85,12 +89,18 @@ def main():
     if a.initialize_capture_reference is not None:uuid.UUID(a.initialize_capture_reference)
     (out/'pid').write_text(str(os.getpid()))
     identity=json.loads((a.run/'artifacts/run_identity.json').read_text())
+    simulation=None
+    if a.simulation_vision_permit is not None:
+        if a.initialize_capture_reference is not None or a.fault_file is not None:
+            raise ValueError('Simulation fusion cannot reuse capture authorization or fault injection')
+        from simulation_vision import SimulationVisionRoute
+        simulation=SimulationVisionRoute(a.run,a.simulation_vision_permit)
     # New preparation binds the exact copied firmware. Historical runs keep
     # their legacy path; neither path admits an unknown hash to the mapper.
-    digest=prepared_firmware_digest(a.run,identity)
-    mapping=AppliedClockMapping(identity['clock_epoch'],digest)
+    digest=prepared_firmware_digest(a.run,identity,simulation)
+    mapping=AppliedClockMapping(identity['clock_epoch'],digest,simulation_route=simulation)
     state_directory=Path(os.environ.get('PHASE1_GUARD_STATE_DIR',str(a.run/'state')))
-    state_path=state_directory/'capture_reference.json'
+    state_path=state_directory/('capture_reference.json' if simulation is None else 'simulation_reference.json')
     gate=NavigationLifecycle(state_path,mapping)
     egress=VisionEgress(state_path)
     # A used reference means restart: never generate another automatically.
@@ -126,6 +136,7 @@ def main():
         changed=gate.reason!=reason or not gate.durable.state['blocked']
         if changed:gate.block(reason)
         if not egress.authorization.state['blocked']:egress.block()
+        if simulation is not None:simulation.failure=reason
         if changed:log('events',event='latched_closed',reason=reason)
     def stop(*_):running[0]=False
     signal.signal(signal.SIGTERM,stop);signal.signal(signal.SIGINT,stop)
@@ -185,6 +196,11 @@ def main():
         'EK3_SRC1_VELXY','EK3_SRC1_POSZ','EK3_SRC1_VELZ','EK3_SRC1_YAW','VISO_TYPE','VISO_DELAY_MS',
         'VISO_POS_M_NSE','VISO_VEL_M_NSE','VISO_YAW_M_NSE','SERIAL0_PROTOCOL']
     last_param=0
+    parameter_values={};origin_sent=False;origin_confirmed=False
+    if simulation is not None:
+        from preflight_ekf3 import EXPECTED
+        from analyze_mavros_wire import expected as expected_wire
+        parameter_names=list(dict.fromkeys(parameter_names+list(EXPECTED)))
     system_pending=None;last_system=0
     trace=a.run/'evidence/applied.csv'
     def refresh():
@@ -226,6 +242,7 @@ def main():
         nonlocal initial_allowed
         now=time.monotonic_ns()
         if not mapping.verified or clock[0] is None:return
+        if simulation is not None and (not simulation.ready(now) or not origin_confirmed):return
         if not heartbeat_fresh(last_heartbeat,mapping.anchors[-1]['target_ns']):
             if not initial_allowed:block('FCU heartbeat missing/stale')
             return
@@ -241,17 +258,18 @@ def main():
             token=tokens.pop(ns);pending.pop(ns)
             try:
                 if initial_allowed and poses.get_subscription_count() and speeds.get_subscription_count():
-                    # Explicit diagnostic contract only; there is NO FCU egress route.
+                    # Capture remains diagnostic. Simulation additionally requires
+                    # its inspected permit, DISARMED/parameter/origin preflight.
                     convert_pair(convert(msg),PoseWithCovarianceStamped,TwistWithCovarianceStamped,clock[0])
                     mapping.map(ns,now,mapping.source_epoch)
                     calibration=json.loads((a.run/'evidence/integrated/summary.json').read_text())
                     if calibration['mount_status']!='PASS':raise ValueError('actual gimbal preflight failed')
-                    reference='CAPTURE_ONLY:'+(a.initialize_capture_reference or identity['reference_nonce'])
+                    reference=('CAPTURE_ONLY:' if simulation is None else 'SIMULATION_DISARMED:')+(a.initialize_capture_reference or identity['reference_nonce'])
                     gate.authorize(reference,token,'PASS',now)
                     egress.authorize(reference,token['session'],'PASS')
                     initial_allowed=False
                     log('events',event='diagnostic_reference_initialized',reference=reference,initial_acquisition_ns=ns,
-                        authorization_scope='isolated capture contract only; NOT full FCU preflight',forwarding_enabled=False)
+                        authorization_scope='isolated capture contract only' if simulation is None else 'DISARMED Gazebo/SITL vision only',forwarding_enabled=False)
                     continue
                 mark('pair_input_age',source_ns=ns,decision_host_ns=now,ros_clock_ns=gate.ros_clock,
                      age_sim_ns=None if gate.ros_clock is None else gate.ros_clock-ns)
@@ -260,6 +278,12 @@ def main():
                 if pair is None:
                     egress.block();log('events',event='pair_blocked',reason=gate.reason,acquisition_ns=ns);continue
                 pose,speed,meta=pair
+                wire_expected=None
+                if simulation is not None:
+                    q=pose.pose.pose.orientation;v=speed.twist.twist.linear;pos=pose.pose.pose.position
+                    wire_expected={
+                        'VISION_POSITION_ESTIMATE':expected_wire(dict(kind='pose',values=[pos.x,pos.y,pos.z,q.x,q.y,q.z,q.w],covariance=list(pose.pose.covariance))),
+                        'VISION_SPEED_ESTIMATE':expected_wire(dict(kind='speed',values=[v.x,v.y,v.z],covariance=list(speed.twist.covariance)))}
                 mark('permission_created',source_ns=ns,approved_host_ns=meta['approved_host_ns'],
                      deadline_host_ns=meta['allowed_host_deadline_ns'],remaining_ns=meta['allowed_host_deadline_ns']-time.monotonic_ns())
                 with sample(ns),stage('egress_approve'):
@@ -270,7 +294,7 @@ def main():
                 with sample(ns),stage('mavros_enqueue'):
                     poses.publish(pose);speeds.publish(speed)
                 expected[meta['fcu_ns']//1000]=dict(position=[msg.pose.pose.position.x,msg.pose.pose.position.y,msg.pose.pose.position.z],
-                    covariance=list(msg.pose.covariance),meta=meta,diagnostic=gate.last_transformed,valid_seen=set())
+                    covariance=list(msg.pose.covariance),meta=meta,diagnostic=gate.last_transformed,valid_seen=set(),wire=wire_expected)
                 stats['mapped_pairs']+=1
                 log('mapping',**meta,source_clock_ns=clock[0],publish_host_ns=time.monotonic_ns(),forwarding_enabled=False)
                 # Reuse validated conversion, publish diagnostic only after BOTH
@@ -302,6 +326,7 @@ def main():
             if data:
                 audit_writer.put('tcpraw',data)
                 received=time.monotonic_ns()
+                if simulation is not None:simulation.heartbeat.feed(data,received/1e9)
                 for msg in dec_tcp.parse_buffer(data) or []:
                     kind=msg.get_type()
                     if kind=='BAD_DATA':continue
@@ -320,8 +345,26 @@ def main():
                         witness.append(dict(kind='SYSTEM_TIME',fcu_ns=msg.time_boot_ms*1_000_000,
                             sent_ns=system_pending,received_ns=received))
                         system_pending=None
-                    if kind=='PARAM_VALUE':log('params',message=msg.to_dict())
+                    if kind=='PARAM_VALUE':
+                        log('params',message=msg.to_dict())
+                        name=msg.param_id.decode() if isinstance(msg.param_id,bytes) else msg.param_id
+                        parameter_values[name.rstrip('\0')]=msg.param_value
+                    if simulation is not None and kind=='GPS_GLOBAL_ORIGIN':
+                        origin_confirmed=[msg.latitude,msg.longitude,msg.altitude]==simulation.permit['origin']
+                        if not origin_confirmed:block('FCU origin readback mismatch')
                     udp.sendto(bytes(msg.get_msgbuf()),('127.0.0.1',14891))
+            if simulation is not None:
+                simulation.heartbeat.assert_fresh(time.monotonic())
+                if not origin_sent and simulation.ready(time.monotonic_ns()) and all(k in parameter_values for k in (*EXPECTED,'SERIAL0_PROTOCOL')):
+                    if any(parameter_values[k]!=v for k,v in EXPECTED.items()) or parameter_values.get('SERIAL0_PROTOCOL')!=2:
+                        raise ValueError('FCU ExternalNav/GPS/MAVLink parameter readback mismatch')
+                    origin=wire.MAVLink_set_gps_global_origin_message(1,*simulation.permit['origin'])
+                    tcp.sendall(origin.pack(enc));enc.seq=(enc.seq+1)%256
+                    request=wire.MAVLink_command_long_message(1,1,512,0,49,0,0,0,0,0,0)
+                    tcp.sendall(request.pack(enc));enc.seq=(enc.seq+1)%256
+                    origin_sent=True
+                    stats['simulation_origin_initializations']=1
+                    log('events',event='explicit_simulation_origin_requested',origin=simulation.permit['origin'])
             for data,wire_arrival in ready_datagrams(udp):
                 for msg in dec_udp.parse_buffer(data) or []:
                     kind=msg.get_type()
@@ -356,17 +399,28 @@ def main():
                         wire_checked=time.monotonic_ns()
                         if valid and ex and wire_checked>ex['meta']['allowed_host_deadline_ns']:
                             reason='permission expired at final wire boundary';block(reason);valid=False
+                        forwarded=False
+                        if simulation is not None and valid:
+                            before_writes=simulation.writes
+                            try:
+                                forwarded=simulation.forward(msg,ex,gate,last_odom[0],tcp.send)
+                            except ValueError as exc:
+                                forwarded=simulation.writes>before_writes
+                                reason=str(exc);block(reason);valid=False
+                            stats['vision_sent_to_fcu']=simulation.writes
                         stats['validated_capture_packets']+=int(valid)
                         log('wire',message=msg.to_dict(),valid_capture=valid,reason=reason,
                             arrival_host_ns=wire_arrival,checked_host_ns=wire_checked,
                             deadline_host_ns=None if expected.get(usec) is None else expected[usec]['meta']['allowed_host_deadline_ns'],
                             clock=clock_at_boundary,
-                            forwarded_to_fcu=False,global_forwarding_enabled=False)
+                            forwarded_to_fcu=forwarded,global_forwarding_enabled=False,
+                            simulation_send=None if simulation is None else simulation.last_send)
                         if valid and ex:
                             ex['valid_seen'].add(kind)
                             if len(ex['valid_seen'])==2:
                                 with stage('diagnostic_ros_publish',usec=usec):converted.publish(ex['diagnostic'])
             drain()
+            if simulation is not None and simulation.failure:raise RuntimeError(simulation.failure)
             if not initial_allowed and not gate.durable.state['blocked']:
                 if not heartbeat_fresh(last_heartbeat,mapping.anchors[-1]['target_ns']):block('FCU heartbeat missing/stale')
                 elif not poses.get_subscription_count() or not speeds.get_subscription_count():block('MAVROS disconnected')
@@ -379,6 +433,9 @@ def main():
                         if not gate.watchdog(time.monotonic_ns()):egress.block()
                     except (OSError,ValueError,IndexError):block('owned MAVROS process stopped')
                 elif not gate.watchdog(time.monotonic_ns()):egress.block()
+    except BaseException as exc:
+        if simulation is not None:simulation.failure=str(exc)
+        raise
     finally:
         gate.close();egress.close();tcp.close();udp.close()
         # Evidence copy only. The named-volume originals remain authoritative
@@ -392,7 +449,17 @@ def main():
         recorder.close()
         with (out/'summary.json').open('x') as f:json.dump(dict(stats,clock_mapping_verified=mapping.verified,
             clock_latched=mapping.broken,gate_reason=gate.reason,decision='HOLD',execution_allowed=False,
-            forwarding_enabled=False,scope='Live candidate-wire capture; no FCU vision reception/fusion'),f,indent=2)
+            forwarding_enabled=False,scope='Live candidate-wire capture; no FCU vision reception/fusion' if simulation is None else
+                'DISARMED simulation-only vision ingress; fusion requires independent DataFlash evidence'),f,indent=2)
+        if simulation is not None:
+            with (out/'simulation_result.json').open('x') as f:
+                json.dump(dict(scope='DISARMED Gazebo/SITL ONLY',vision_socket_writes=simulation.writes,
+                    failure=simulation.failure,origin_confirmed=origin_confirmed,
+                    complete_forwarded_pairs=sum(len(e['valid_seen'])==2 for e in expected.values()),
+                    fcu_reception_and_fusion='NOT VERIFIED: inspect DataFlash VISP/VISV/XKF logs',
+                    execution_allowed=False,forwarding_enabled=False),f,indent=2)
+    if simulation is not None and not simulation.writes:
+        raise RuntimeError('No live vision forwarded; simulation fusion NOT TESTED')
 
 
 if __name__=='__main__':main()

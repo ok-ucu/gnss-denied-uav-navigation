@@ -22,6 +22,16 @@ The historical ARM64 pin remains
 `AppliedClockMapping` still rejects every other hash. No caller-provided hash,
 ELF check, successful parser tests or candidate manifest can bypass this.
 
+**Simulation-only exception implemented after this historical preparation:**
+the [README DISARMED route](README.md#opt-in-disarmed-live-camera-vision-ingress-linux-nvidia-only)
+adds explicit `--simulation-disarmed-vision` with a native candidate and origin.
+Only its inspected internal Gazebo/SITL namespace and exact running firmware,
+source/build records, kernel identity and one-run permit grant eligibility to
+collect live clock proof. The default mapper pin/candidate prohibition and all
+clock/freshness/deadline checks remain. No AMD64 runtime/fusion PASS is claimed.
+The historical statements below about forbidden execution refer to the default
+capture path; do not manually alter `runtime_admitted` or bypass that path.
+
 |Issue|Small change / remaining limit|
 |---|---|
 |SITL root Git query in docker-owned checkout|Collect commit/submodules/diff as the owner before USER root; no global safe.directory bypass|

@@ -106,8 +106,9 @@ new FCU forwarding is claimed. Details remain in the local status and ignored
 [launch_phase1.py](launch_phase1.py) refuses to overwrite an old run or reuse
 container names. Its default is preparation only. A separately authorized
 capture run uses [phase1.compose.yaml](phase1.compose.yaml), the actual patched
-binary, gimbal model, real VIO and patched MAVROS. It never provides an FCU vision
-forward switch or ARM/TAKEOFF command. [run_latency_matrix.py](run_latency_matrix.py)
+binary, gimbal model, real VIO and patched MAVROS. Its default capture mode has
+no FCU vision route. The separate opt-in DISARMED simulation route below never
+provides ARM/TAKEOFF commands. [run_latency_matrix.py](run_latency_matrix.py)
 adds labelled receive/quality faults and process/clock lifecycle checks within
 that owned stack. It uses explicit new **capture** references, not FCU approval.
 
@@ -122,3 +123,73 @@ This command is documented, not run as part of the source-scope audit. It checks
 installed image/artifact IDs and creates new local configuration; it is not a
 fresh-machine dependency installer. No flight or forwarding approval follows
 from preparing files.
+
+## Opt-in DISARMED live-camera vision ingress (Linux NVIDIA only)
+
+This is an implemented, **not live-verified**, simulation-only route. Default
+capture and production forwarding remain disabled. It does not authorize flight.
+Use one new matched-physics Gazebo/SITL stack, never a real FCU or a historical
+run. The source still uses Gazebo GT **height only**; horizontal GT is not input.
+
+First complete the native build/exports and isolated overlay replay in
+[AMD64_TRANSPORT_READINESS.md](AMD64_TRANSPORT_READINESS.md). These produce
+`firmware/`, `mavros/`, `patch_install/`, and the verified HOLD `candidate.json`
+under one `integration/linux_gpu_runs/<build-id>/`. Do not change context hashes
+or replace missing MAVROS2.16.0 packages with another version.
+
+From the repository root, after receiving this source commit, choose fresh IDs:
+
+```bash
+set -euo pipefail
+: "${P1_BUILD:?set to the existing native export directory below integration/linux_gpu_runs}"
+test -f "$P1_BUILD/candidate.json"
+test -r /usr/share/glvnd/egl_vendor.d/10_nvidia.json
+python3 -B integration/linux_gpu/prepare_vio.py \
+  --output integration/linux_gpu_runs/vio-fusion01
+python3 -B integration/launch_phase1.py \
+  --run-id 20261116-camerafusion01 \
+  --runtime-candidate "$P1_BUILD/candidate.json" \
+  --vio-dir integration/linux_gpu_runs/vio-fusion01 \
+  --gpu-mode nvidia --isolated-imu \
+  --simulation-disarmed-vision \
+  --simulation-origin=-35.363262,149.165237,584 --execute
+```
+
+The explicit simulation flag is approval only for this bounded DISARMED test.
+Without it a native candidate still cannot execute. `runtime_admitted` remains
+false for production: a simulation permit only makes that exact source-verified
+binary eligible for **fresh live** applied-clock/cross-check proof. It never
+sets `mapping.verified` or supplies missing anchors. Unsupported environments
+fail closed; WSL/D3D12 is not admitted by this NVIDIA-specific mode.
+
+The launcher verifies the actual NVIDIA renderer and gimbal, binds immutable
+Docker IDs/internal network/proc namespace/build identity into a one-run permit,
+then runs **one 60s normal ingress window** without the fault matrix. The source
+runs for 65s so that the interlock closes at the declared observation end before
+source export/teardown; all traces are retained and the monotonic end boundary
+is saved in `evidence/simulation_observation.json`. No outage within the window
+is excluded. The transport
+requires sustained expected-source DISARMED MAVLink2, FCU ExternalNav/GPS parameter
+readback, explicit EKF-origin readback, actual mapped acquisition timestamps,
+covariance/payload equality and the existing durable/final wire permission.
+Only VPE/VSE may use the added route. MAVROS still peers with UDP14890/14891,
+never directly with FCU TCP5760. Origin initialization is explicit simulation
+reference setup, not a GPS measurement. No mode/arming/takeoff command is sent.
+
+Artifacts are under `integration/phase1_runs/20261116-camerafusion01/`:
+`artifacts/simulation_vision_permit.json`, `evidence/simulation-owned-initial.json`,
+`evidence/transport_1/{wire,params,fcuwitness,mapping}.jsonl`,
+`evidence/transport_1/simulation_result.json`, VIO/observer traces and
+`state/fcu/logs/*.BIN`. A complete local socket write is **not** FCU reception or
+fusion PASS. Inspect DataFlash VISP/VISV (remote timestamps/ignore/reset), MSG
+ExternalNav aiding, XKFS source selection and XKF innovations/status/variance.
+The historical `analyze_ekf3_fusion.py` expects a synthetic bench directory layout;
+do not apply its static-origin RMSE verdict to this camera run.
+
+STOP on any preflight/latch/heartbeat/clock/permission/source failure, partial or
+late send, or incomplete cleanup. No TTL/watchdog is relaxed and no stale data
+is replayed. No automatic reference reopening after reset/restart. The launcher
+stops the exact initially recorded container IDs and preserves logs/state/volumes.
+If startup failed before IDs were established, cleanup is explicitly INCOMPLETE;
+inspect that run before further action. All Linux runtime/fusion outcomes remain
+NOT TESTED by offline regressions. Phase 1 remains HOLD.

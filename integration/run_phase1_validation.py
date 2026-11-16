@@ -16,7 +16,9 @@ parser=argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--run',type=Path,required=True)
 parser.add_argument('--run-id',required=True)
 parser.add_argument('--isolated-imu',action='store_true')
+parser.add_argument('--simulation-vision-permit',type=Path,help='Only bounded normal DISARMED run; no fault matrix, ARM or mode commands')
 args=parser.parse_args()
+simulation=args.simulation_vision_permit is not None
 RUN=args.run.resolve()
 if not RUN.is_relative_to(Path(__file__).resolve().parent/'phase1_runs'):
     raise ValueError('Require an owned Phase1 run')
@@ -52,6 +54,7 @@ def stop_pid(kind,path):
 def inventory():
     names=call(['docker','ps','--format','{{.Names}}']).stdout.splitlines()
     names=[n for n in names if n not in NAMES.values()]
+    if not names:return []
     fmt='{"name":{{json .Name}},"id":{{json .Id}},"start":{{json .State.StartedAt}},"image":{{json .Image}},"network":{{json .HostConfig.NetworkMode}}}'
     return [json.loads(s) for s in call(['docker','inspect','--format',fmt,*names]).stdout.splitlines()]
 
@@ -67,13 +70,32 @@ try:
     fixture=True
     start('camera_bridge','vio',ros+f'exec ros2 run ros_gz_bridge parameter_bridge {camera}@sensor_msgs/msg/Image[gz.msgs.Image --ros-args -r __node:=phase1_camera_bridge')
     start('mavros_1','transport',patched+'echo $$ > /run/integration/state/mavros_1.pid; exec /opt/ros/jazzy/lib/mavros/mavros_node --ros-args --params-file /opt/integration/phase1_capture_mavros.yaml')
-    gate=start('transport_1','transport',patched+'exec python3 -B /opt/integration/phase1_transport.py --run /run/integration --duration 150 --output-name transport_1')
+    permit_extra=''
+    if simulation:
+        if args.simulation_vision_permit.resolve()!=RUN/'artifacts/simulation_vision_permit.json':
+            raise ValueError('Require this run\'s exact simulation permit')
+        permit_extra=' --simulation-vision-permit /run/integration/artifacts/simulation_vision_permit.json'
+    gate=start('transport_1','transport',patched+'exec python3 -B /opt/integration/phase1_transport.py --run /run/integration --duration '+('70' if simulation else '150')+' --output-name transport_1'+permit_extra)
     start('observer','vio',ros+'exec python3 -B /opt/integration/observe_frame_bridge.py --directory /run/integration/evidence/observer --duration 125 --output-topic /integration/phase1/odometry_enu')
     time.sleep(3)
-    source=start('vio','vio',ros+'exec python3 -B /opt/integration/run_vio_stream.py --vio-dir /opt/vio --output-dir /run/integration/evidence/vio --duration 110 --ground-z .001 --mount-calibration /run/integration/artifacts/mount_calibration.json --profile --async-diagnostics --reliable-camera --min-odom-subscribers 2 --min-epoch-subscribers 1 --faults --fault-offset 60 '+ ' '.join(isolated_imu_args(args.isolated_imu)))
-    beginning=time.monotonic();done=set()
+    source=start('vio','vio',ros+'exec python3 -B /opt/integration/run_vio_stream.py --vio-dir /opt/vio --output-dir /run/integration/evidence/vio --duration '+('65' if simulation else '110')+' --ground-z .001 --mount-calibration /run/integration/artifacts/mount_calibration.json --profile --async-diagnostics --reliable-camera --min-odom-subscribers 2 --min-epoch-subscribers 1 '+('' if simulation else '--faults --fault-offset 60 ')+ ' '.join(isolated_imu_args(args.isolated_imu)))
+    beginning=time.monotonic();done=set();simulation_stopped=False
     while source.poll() is None:
         elapsed=time.monotonic()-beginning
+        if simulation:
+            if not simulation_stopped and gate.poll() is not None:raise RuntimeError('DISARMED simulation transport stopped; abort source')
+            if elapsed>=60 and not simulation_stopped:
+                # End the declared window while sensors still run, before source
+                # export/teardown. Never hide a watchdog failure inside the window.
+                stop_pid('transport',Path('evidence/transport_1/pid'));gate.wait(timeout=10)
+                if gate.returncode:raise RuntimeError('Simulation interlock failed at observation end')
+                simulation_stopped=True
+                (RUN/'evidence/simulation_observation.json').write_text(json.dumps(dict(
+                    start_monotonic_s=beginning,end_monotonic_s=time.monotonic(),
+                    reason='planned 60s DISARMED ingress window ended before source teardown'))+'\n')
+            if elapsed>80:raise RuntimeError('Bounded DISARMED simulation source timeout')
+            time.sleep(.1)
+            continue
         if elapsed>145:raise RuntimeError('Producer did not stop within bounded duration')
         if elapsed>=60 and 'mavros' not in done:
             stop_pid('transport',Path('state/mavros_1.pid'))
@@ -95,10 +117,15 @@ try:
             done.add('reset')
         time.sleep(.1)
     if source.returncode:raise RuntimeError('VIO producer failed; preserve unsuccessful run')
+    if simulation and not simulation_stopped:raise RuntimeError('Source ended before the 60s observation window')
     # Graceful stop only our transport so the durable state is explicitly closed.
     if (RUN/'evidence/transport_2/pid').exists():stop_pid('transport',Path('evidence/transport_2/pid'))
     for label,child in children:
         if label in ('transport_1','transport_2','vio'):child.wait(timeout=15)
+    if simulation:
+        result=json.loads((RUN/'evidence/transport_1/simulation_result.json').read_text())
+        if gate.returncode or result['failure'] or not result['origin_confirmed'] or not result['complete_forwarded_pairs']:
+            raise RuntimeError('DISARMED simulation ingress failed; inspect preserved transport/DataFlash evidence')
 finally:
     if fixture:
         own_exec('vio',ros+'python3 -B /opt/integration/vio_ground_fixture.py remove --directory /run/integration/artifacts/fixture',check=False)

@@ -1,6 +1,7 @@
 """Offline build-record/ELF fixtures, never amd64 execution or clock admission."""
 import json
 import io
+import hashlib
 from contextlib import redirect_stdout
 from pathlib import Path
 import struct
@@ -104,12 +105,20 @@ class RuntimeCandidateTests(unittest.TestCase):
                        firmware=self.fw/'arducopter',overlay=self.overlay)
         candidate['firmware'].chmod(0o755)
         def output(command,**kwargs):
-            if command[0]=='git':return 'gazebo-sitl-integration\n'
+            if command[0]=='git':return 'phase1-integration-merge\n'
             if command[1:3]==['image','inspect']:return 'linux/amd64\n'
             if command[1]=='compose':return 'services: {}\n'
             raise AssertionError(command)
         console=io.StringIO()
-        with patch.object(sys,'argv',['launch_phase1.py','--run-id','20261113-unit2','--runtime-candidate','candidate.json','--gpu-mode','wsl']), \
+        vio_dir=self.root/'external-vio'
+        vio_dir.mkdir()
+        vio_hashes={}
+        for name in launch_phase1.VIO_FILES:
+            data=('offline source fixture: '+name).encode()
+            (vio_dir/name).write_bytes(data)
+            vio_hashes[name]=hashlib.sha256(data).hexdigest()
+        with patch.object(sys,'argv',['launch_phase1.py','--run-id','20261113-unit2','--runtime-candidate','candidate.json','--gpu-mode','wsl','--vio-dir',str(vio_dir)]), \
+             patch.object(launch_phase1,'VIO_FILES',vio_hashes), \
              patch('runtime_candidate.load_candidate',return_value=candidate), \
              patch.object(launch_phase1,'INTEGRATION',self.root), \
              patch.object(launch_phase1,'verified_file',side_effect=lambda name:sources[name]), \
@@ -127,6 +136,8 @@ class RuntimeCandidateTests(unittest.TestCase):
         self.assertEqual((run/'artifacts/arducopter').read_bytes(),candidate['firmware'].read_bytes())
         self.assertTrue((run/'artifacts/arducopter').stat().st_mode & 0o111)
         self.assertIn('P1_OVERLAY_ROOT='+str(self.overlay),(run/'compose.env').read_text())
+        self.assertIn('VIO_ROOT='+str(vio_dir.resolve()),(run/'compose.env').read_text())
+        self.assertEqual(json.loads((run/'PREPARATION.json').read_text())['vio_commit'],launch_phase1.VIO_PIN)
         for call in calls.call_args_list:
             self.assertIn('inspect',call.args[0])  # no create/up/start/stop
 
@@ -158,6 +169,42 @@ class RuntimeCandidateTests(unittest.TestCase):
         for values in by_kind.values():
             self.assertTrue(all(type(v) is int for v in values))
             self.assertTrue(all(b>a for a,b in zip(values,values[1:])))
+
+
+class LauncherDependencyTests(unittest.TestCase):
+    def test_only_integration_branches_are_allowed(self):
+        for branch in ('gazebo-sitl-integration','phase1-integration-merge'):
+            launch_phase1.validate_branch(branch)
+        for branch in ('main','master','vio-setup','other'):
+            with self.subTest(branch=branch),self.assertRaisesRegex(ValueError,'Unexpected branch'):
+                launch_phase1.validate_branch(branch)
+
+    def test_external_vio_export_is_hash_checked_without_rewriting_it(self):
+        with tempfile.TemporaryDirectory() as temp:
+            directory=Path(temp)/'export';directory.mkdir()
+            hashes={}
+            for name in launch_phase1.VIO_FILES:
+                data=('synthetic source fixture: '+name).encode()
+                (directory/name).write_bytes(data)
+                hashes[name]=hashlib.sha256(data).hexdigest()
+            with patch.object(launch_phase1,'VIO_FILES',hashes):
+                self.assertEqual(launch_phase1.validate_vio_dir(directory),directory.resolve())
+                first=next(iter(hashes))
+                (directory/first).write_text('changed fixture')
+                with self.assertRaisesRegex(ValueError,'changed pinned VIO'):
+                    launch_phase1.validate_vio_dir(directory)
+                self.assertEqual((directory/first).read_text(),'changed fixture')
+
+    def test_missing_vio_stops_before_docker_or_run_creation(self):
+        with tempfile.TemporaryDirectory() as temp:
+            integration=Path(temp)/'integration';integration.mkdir()
+            with patch.object(sys,'argv',['launch_phase1.py','--run-id','20261116-unit1']), \
+                 patch.object(launch_phase1,'INTEGRATION',integration), \
+                 patch.object(launch_phase1.subprocess,'run',side_effect=AssertionError('No Docker')), \
+                 patch.object(launch_phase1.subprocess,'check_output',side_effect=AssertionError('No external command')):
+                with self.assertRaisesRegex(ValueError,'Missing or changed pinned VIO'):
+                    launch_phase1.main()
+            self.assertFalse((integration/'phase1_runs').exists())
 
 
 if __name__=='__main__':unittest.main()

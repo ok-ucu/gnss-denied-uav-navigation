@@ -16,8 +16,13 @@ PATCHED_SHA='047e4fbe21de2f88eba6c453e8aa3091ffd4b89b2b5568544f16cbf4c38d5970'
 
 
 class AppliedClockMapping:
-    def __init__(self,epoch,firmware_sha,*,max_uncertainty_ns=20_000_000,max_age_ns=200_000_000):
-        if not epoch or firmware_sha!=PATCHED_SHA:raise ValueError('Unreviewed clock implementation')
+    def __init__(self,epoch,firmware_sha,*,max_uncertainty_ns=20_000_000,max_age_ns=200_000_000,
+                 simulation_route=None):
+        # Build provenance grants eligibility only in the explicitly inspected
+        # simulator. Live anchors/cross-checks below must still establish proof.
+        if not epoch or (firmware_sha!=PATCHED_SHA and
+                (simulation_route is None or not simulation_route.accepts_firmware(firmware_sha))):
+            raise ValueError('Unreviewed clock implementation')
         self.source_epoch=epoch;self.anchors=deque(maxlen=512)
         self.max_uncertainty_ns=max_uncertainty_ns;self.max_age_ns=max_age_ns
         self.verified=False;self.broken=False;self.remote_checks=0
