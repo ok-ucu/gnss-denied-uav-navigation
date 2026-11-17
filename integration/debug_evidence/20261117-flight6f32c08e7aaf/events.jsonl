@@ -1,0 +1,3 @@
+{"host_ns": 16357243295858, "event": "explicit_simulation_origin_requested", "origin": [-353632620, 1491652370, 584000]}
+{"host_ns": 16357259824949, "event": "diagnostic_reference_initialized", "reference": "SIMULATION_DISARMED:1374db27-889f-4682-82c2-1ea9d11d81bf", "initial_acquisition_ns": 26700000000, "authorization_scope": "DISARMED Gazebo/SITL vision only", "forwarding_enabled": false}
+{"host_ns": 16381620803969, "event": "latched_closed", "reason": "VIO availability watchdog"}
