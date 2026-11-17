@@ -64,12 +64,15 @@ def main():
     parser.add_argument('--run-id', required=True, type=validate_run_id)
     parser.add_argument('--execute', action='store_true')
     parser.add_argument('--isolated-imu', action='store_true', help='Opt-in spawned IMU/clock receiver in capture validation')
+    parser.add_argument('--test-vio-loss', action='store_true')
     parser.add_argument('--vio-dir', type=Path, help='Pinned VIO export directory; defaults to repository vio/')
     parser.add_argument('--runtime-candidate',type=Path,help='Verified native export; PREPARE ONLY unless explicit DISARMED simulation mode is selected')
     parser.add_argument('--gpu-mode',choices=['software','dri','nvidia','wsl'],default='software')
     parser.add_argument('--simulation-disarmed-vision',action='store_true',help='Explicit approval: bounded DISARMED vision to owned Gazebo/SITL only, never flight')
     parser.add_argument('--simulation-origin',help='Explicit lat,lon,alt_m for the isolated simulation EKF origin')
     args = parser.parse_args()
+    if args.test_vio_loss and (not args.simulation_disarmed_vision or not args.execute):
+        parser.error('--test-vio-loss requires --simulation-disarmed-vision and --execute')
     if args.simulation_disarmed_vision and (not args.runtime_candidate or not args.simulation_origin or args.gpu_mode!='nvidia'):
         parser.error('Simulation vision requires native candidate, explicit origin and NVIDIA profile')
     if args.simulation_origin and not args.simulation_disarmed_vision:
@@ -155,6 +158,12 @@ def main():
     compose = ['docker', 'compose', '--env-file', str(env_file), '-f', str(INTEGRATION / 'phase1.compose.yaml')]
     if args.gpu_mode!='software':
         compose+=['-f',str(INTEGRATION/'linux_gpu'/('phase1.gpu.'+args.gpu_mode+'.yaml'))]
+    import os
+    if os.environ.get('P1_RUN_ID'):
+        raise RuntimeError(
+            'P1_RUN_ID is set in shell. Run: unset P1_RUN_ID'
+        )
+    os.environ.update(env_values)
     config = subprocess.check_output(compose + ['config'], text=True)
     (run / 'artifacts/resolved-compose.yaml').write_text(config)
     print(run, flush=True)
@@ -208,7 +217,7 @@ def main():
             permit=prepare_permit(run,args.runtime_candidate,origin,approved=True)
             extra=['--simulation-vision-permit',str(permit)]
         call([sys.executable, '-B', str(INTEGRATION / 'run_phase1_validation.py'), '--run', str(run),
-              '--run-id', args.run_id]+(['--isolated-imu'] if args.isolated_imu else [])+extra, run / 'evidence/validation.console.txt',180 if args.simulation_disarmed_vision else None)
+              '--run-id', args.run_id]+(['--isolated-imu'] if args.isolated_imu else [])+(['--test-vio-loss'] if args.test_vio_loss else [])+extra, run / 'evidence/validation.console.txt',180 if args.simulation_disarmed_vision else None)
     finally:
         # Exact allowlist; never docker compose down, prune, stop-all or removal.
         cleanup_errors=[]

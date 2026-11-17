@@ -16,13 +16,16 @@ parser=argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--run',type=Path,required=True)
 parser.add_argument('--run-id',required=True)
 parser.add_argument('--isolated-imu',action='store_true')
-parser.add_argument('--simulation-vision-permit',type=Path,help='Only bounded normal DISARMED run; no fault matrix, ARM or mode commands')
+parser.add_argument('--test-vio-loss',action='store_true')
+parser.add_argument('--simulation-vision-permit',type=Path,help='Bounded DISARMED simulation only; VIO-loss injection requires --test-vio-loss')
 args=parser.parse_args()
 simulation=args.simulation_vision_permit is not None
 RUN=args.run.resolve()
 if not RUN.is_relative_to(Path(__file__).resolve().parent/'phase1_runs'):
     raise ValueError('Require an owned Phase1 run')
 validate_run_id(args.run_id)
+if args.test_vio_loss and not simulation:
+    parser.error('--test-vio-loss requires the run-specific DISARMED simulation permit')
 NAMES={kind:f'gnss-p1-{kind}-{args.run_id}' for kind in ('physics','fcu','vio','transport')}
 PARTITION='gnss-p1-integrated-'+args.run_id
 audit=(RUN/'evidence/commands.jsonl').open('x')
@@ -80,15 +83,58 @@ try:
     time.sleep(3)
     source=start('vio','vio',ros+'exec python3 -B /opt/integration/run_vio_stream.py --vio-dir /opt/vio --output-dir /run/integration/evidence/vio --duration '+('65' if simulation else '110')+' --ground-z .001 --mount-calibration /run/integration/artifacts/mount_calibration.json --profile --async-diagnostics --reliable-camera --min-odom-subscribers 2 --min-epoch-subscribers 1 '+('' if simulation else '--faults --fault-offset 60 ')+ ' '.join(isolated_imu_args(args.isolated_imu)))
     beginning=time.monotonic();done=set();simulation_stopped=False
+    vio_loss_started=None
+    vio_loss_resumed=False
+    vio_loss_pid=None
+    vio_loss_stopped=False
+    vio_loss_recovery_error=None
+
     while source.poll() is None:
         elapsed=time.monotonic()-beginning
         if simulation:
-            if not simulation_stopped and gate.poll() is not None:raise RuntimeError('DISARMED simulation transport stopped; abort source')
+            if args.test_vio_loss and not vio_loss_resumed:
+                if elapsed >= 35 and vio_loss_started is None:
+                    config_path=RUN/'evidence/vio/configuration.json'
+                    if not config_path.exists():
+                        raise RuntimeError('VIO configuration missing')
+                    vio_loss_pid=int(json.loads(config_path.read_text())['profile_pid'])
+                    if vio_loss_pid <= 1:
+                        raise RuntimeError('Invalid VIO PID')
+                    own_exec(
+                        'vio',
+                        'test -r /proc/'+str(vio_loss_pid)+'/cmdline && '
+                        'grep -azFq /opt/integration/run_vio_stream.py '
+                        '/proc/'+str(vio_loss_pid)+'/cmdline'
+                    )
+                    own_exec('vio','kill -STOP '+str(vio_loss_pid))
+                    vio_loss_stopped=True
+                    vio_loss_started=time.monotonic()
+                    (RUN/'evidence/vio_loss_injection.json').write_text(
+                        json.dumps(dict(
+                            producer_pid=vio_loss_pid,
+                            injection_host_ns=time.monotonic_ns(),
+                            method='SIGSTOP',
+                            simulation_disarmed=True,
+                        ),indent=2)+'\n')
+                if vio_loss_started is not None and time.monotonic()-vio_loss_started >= 2:
+                    own_exec('vio','kill -CONT '+str(vio_loss_pid))
+                    vio_loss_stopped=False
+                    vio_loss_resumed=True
+                    record_path=RUN/'evidence/vio_loss_injection.json'
+                    record=json.loads(record_path.read_text())
+                    record['resume_host_ns']=time.monotonic_ns()
+                    record_path.write_text(json.dumps(record,indent=2)+'\n')
+            if not simulation_stopped and gate.poll() is not None:
+                if not args.test_vio_loss:
+                    raise RuntimeError('Transport exited unexpectedly during observation')
+                # In fault mode, preserve the exit as evidence; validate its reason later.
+                simulation_stopped=True
             if elapsed>=60 and not simulation_stopped:
                 # End the declared window while sensors still run, before source
                 # export/teardown. Never hide a watchdog failure inside the window.
                 stop_pid('transport',Path('evidence/transport_1/pid'));gate.wait(timeout=10)
-                if gate.returncode:raise RuntimeError('Simulation interlock failed at observation end')
+                if gate.returncode and not args.test_vio_loss:
+                    raise RuntimeError('Simulation interlock failed at observation end')
                 simulation_stopped=True
                 (RUN/'evidence/simulation_observation.json').write_text(json.dumps(dict(
                     start_monotonic_s=beginning,end_monotonic_s=time.monotonic(),
@@ -117,16 +163,59 @@ try:
             done.add('reset')
         time.sleep(.1)
     if source.returncode:raise RuntimeError('VIO producer failed; preserve unsuccessful run')
+    if args.test_vio_loss and not vio_loss_resumed:
+        raise RuntimeError('VIO-loss injection did not complete and resume')
     if simulation and not simulation_stopped:raise RuntimeError('Source ended before the 60s observation window')
     # Graceful stop only our transport so the durable state is explicitly closed.
     if (RUN/'evidence/transport_2/pid').exists():stop_pid('transport',Path('evidence/transport_2/pid'))
     for label,child in children:
         if label in ('transport_1','transport_2','vio'):child.wait(timeout=15)
-    if simulation:
+    if args.test_vio_loss:
+        summary=json.loads((RUN/'evidence/transport_1/summary.json').read_text())
+        events_path=RUN/'evidence/transport_1/events.jsonl'
+        events=[json.loads(x) for x in events_path.read_text().splitlines() if x.strip()]
+        injection=json.loads((RUN/'evidence/vio_loss_injection.json').read_text())
+        watchdog=[e for e in events if e.get('event')=='latched_closed'
+                  and e.get('reason')=='VIO availability watchdog']
+
+        result=dict(
+            injection=injection,
+            gate_reason=summary.get('gate_reason'),
+            watchdog_events=watchdog,
+            decision=summary.get('decision'),
+            execution_allowed=summary.get('execution_allowed'),
+            forwarding_enabled=summary.get('forwarding_enabled'),
+        )
+        result['passed']=(
+            bool(watchdog)
+            and injection.get('resume_host_ns',0)>injection.get('injection_host_ns',0)
+            and any(
+                e.get('host_ns', 0) >= injection['injection_host_ns']
+                for e in watchdog
+            )
+            and result['decision']=='HOLD'
+            and result['execution_allowed'] is False
+            and result['forwarding_enabled'] is False
+        )
+        (RUN/'evidence/vio_loss_result.json').write_text(
+            json.dumps(result,indent=2)+'\n'
+        )
+        if not result['passed']:
+            raise RuntimeError('VIO-loss validation FAILED')
+    if simulation and not args.test_vio_loss:
         result=json.loads((RUN/'evidence/transport_1/simulation_result.json').read_text())
         if gate.returncode or result['failure'] or not result['origin_confirmed'] or not result['complete_forwarded_pairs']:
             raise RuntimeError('DISARMED simulation ingress failed; inspect preserved transport/DataFlash evidence')
 finally:
+    if 'vio_loss_stopped' in locals() and vio_loss_stopped:
+        try:
+            own_exec('vio','kill -CONT '+str(vio_loss_pid))
+            vio_loss_stopped=False
+        except Exception as exc:
+            vio_loss_recovery_error=str(exc)
+            (RUN/'evidence/vio_loss_recovery_error.txt').write_text(vio_loss_recovery_error+'\n')
+            # Do not silently continue with a paused producer. The owned container
+            # is stopped by the existing cleanup path below.
     if fixture:
         own_exec('vio',ros+'python3 -B /opt/integration/vio_ground_fixture.py remove --directory /run/integration/artifacts/fixture',check=False)
     # Capture logs/readback before stopping only newly owned containers.
