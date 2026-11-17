@@ -418,6 +418,17 @@ def analyze(run,bin_path,*,decoder=None):
     if not clock:checks['camera_vio_evidence']=verdict(NV,'No verified common timeline')
     if source:metrics['availability']=check('vio_continuity',lambda:continuity(e,source,clock))
     else:checks['vio_continuity']=verdict(NV,'No verified camera source/delivery inputs')
+    def transport_continuity():
+        # Transport-only evidence: runs on failed flights too and names the phase.
+        import odom_continuity
+        report=odom_continuity.analyze(e.json('evidence/flight-transport/odom.jsonl',True),
+                                       e.json('evidence/flight-transport/flight.jsonl',True))
+        metrics['transport_odometry_continuity']=report
+        if report['status']!='PASS':
+            first=report['gaps'][0] if report['gaps'] else None
+            raise ValueError('Odometry gap > %d ns during %s: %s'%(report['max_allowed_gap_ns'],
+                first and first['phase'],first or 'duplicate acquisition stamps'))
+    check('transport_odometry_continuity',transport_continuity)
     if source:
         config=source['config'];window=source['window']
         context['vertical_aid']=config.get('vertical_aid','UNKNOWN')

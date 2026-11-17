@@ -101,6 +101,9 @@ class FlightReportTests(unittest.TestCase):
             poses.append(dict(t=t,poses=[dict(name='iris_with_gimbal',p=[0,0,height+.001])]))
         self.write('evidence/flight-source/poses.jsonl',poses)
         self.write('evidence/flight-transport/wire.jsonl',wire)
+        # The transport logs every received /vio/odom sample (phase1_transport on_odom).
+        self.write('evidence/flight-transport/odom.jsonl',[dict(acquisition_ns=m['acquisition_ns'],
+            callback_entry_host_ns=self.host(m['acquisition_ns']/1e9)+12_000_000) for m in mappings])
         for i in range(123):
             us=5_000_000+i*100000
             for core in (0,1):
@@ -142,10 +145,24 @@ class FlightReportTests(unittest.TestCase):
             if name!='raw_dataflash':self.assertEqual(check['status'],'PASS',(name,check))
         self.assertIsNotNone(data['plot_data']);self.assertFalse(report['execution_allowed'])
 
+    def test_climb_odometry_gap_fails_transport_continuity(self):
+        path=self.run/'evidence/flight-transport/odom.jsonl'
+        rows=[json.loads(line) for line in path.read_text().splitlines()]
+        climb=self.host(2.)
+        kept=[r for r in rows if not climb<r['callback_entry_host_ns']<=climb+500_000_000]
+        self.assertGreater(len(rows)-len(kept),2)
+        path.write_text(''.join(json.dumps(r)+'\n' for r in kept))
+        report,_=self.result()
+        check=report['checks']['transport_odometry_continuity']
+        self.assertEqual(check['status'],'FAIL',check)
+        self.assertIn('CLIMB',check['reason'])
+        self.assertEqual(report['status'],'FAIL')
+
     def test_missing_critical_files_never_pass(self):
         for name in ['state/fcu/logs/00000001.BIN','evidence/applied.csv','evidence/flight-source/poses.jsonl',
                      'evidence/flight-source/ros_camera.jsonl','evidence/flight-transport/fcuwitness.jsonl',
-                     'evidence/flight-transport/flight.jsonl','evidence/flight-transport/flight_result.json']:
+                     'evidence/flight-transport/flight.jsonl','evidence/flight-transport/flight_result.json',
+                     'evidence/flight-transport/odom.jsonl']:
             path=self.run/name;raw=path.read_bytes();path.unlink()
             report,_=self.result();self.assertNotEqual(report['status'],'PASS',name)
             path.write_bytes(raw)

@@ -42,12 +42,16 @@ class QualityGate:
         self.count = 0
         self.last_t = None
         self.transitions = []
+        # Why the most recent frame was withheld (None when it was ready).
+        # Diagnostics only: never consulted by any decision.
+        self.reason = 'not yet assessed'
 
     def block(self, reason, t, wall):
         previous = self.ready
         self.ready = False
         self.since = None
         self.count = 0
+        self.reason = reason
         if previous or not self.transitions or self.transitions[-1]['reason'] != reason:
             self.transitions.append(dict(t=t, wall=wall, ready=False, reason=reason))
         return False
@@ -79,21 +83,39 @@ class QualityGate:
         if not self.ready and self.count >= 3 and t-self.since >= .25-1e-9:
             self.ready = True
             self.transitions.append(dict(t=t, wall=wall, ready=True, reason='readiness passed'))
+        self.reason = None if self.ready else (
+            'readiness hysteresis %d/3 frames, %.3f/0.25 s' % (self.count, t-self.since))
         return self.ready
 
 
-def distributed_flow(previous, gray, dt, height, fx, gyro, rotation, frontend_velocity):
+def distributed_flow(previous, gray, dt, height, fx, gyro, rotation, frontend_velocity, scale=None):
     """Independent spatial-support audit; no GT, no knowledge of shadow position.
 
     Equal feature budget in 12 image cells prevents one textured moving patch
     monopolizing detection. Require affine RANSAC inliers in >=6 cells and a
     span >=40% in BOTH image axes; centre-flow agreement <=1.5 pixels (the
     frontend's own RANSAC tolerance). This cannot detect a whole-image mover.
+
+    scale: optional height-predicted magnification (vio_scale_compensation);
+    the frontend must be given the same compensation so both see one pair.
+    """
+    return judge_distributed_flow(measure_distributed_flow(previous, gray, dt, scale),
+                                  height, fx, gyro, rotation, frontend_velocity)
+
+
+def measure_distributed_flow(previous, gray, dt, scale=None):
+    """Image-only half of the audit (detection, FB-LK, affine).
+
+    Needs no estimator state, so the source runs it on a worker thread while
+    the frontend runs (OpenCV releases the GIL). Thresholds are unchanged.
     """
     import cv2
     import numpy as np
+    from vio_scale_compensation import compensate_previous, to_previous_coordinates
     if previous is None or not math.isfinite(dt) or dt <= 0:
         return {'ok': False, 'reason': 'no previous comparable frame'}
+    original_shape = previous.shape
+    previous = compensate_previous(previous, scale)
     h, w = gray.shape
     points = []
     with critical_stage('audit_detection'):
@@ -128,15 +150,29 @@ def distributed_flow(previous, gray, dt, height, fx, gyro, rotation, frontend_ve
                                               ransacReprojThreshold=1.5)
     if m is None or inliers is None:
         return {'ok': False, 'reason': 'no distributed affine'}
-    support = a[inliers.ravel().astype(bool)]
-    cells = {(min(3, int(x*4/w)), min(2, int(y*3/h))) for x, y in support}
-    span = np.ptp(support, axis=0)/[w, h]
+    # Spatial support is judged where the features are in the REAL previous image.
+    support = to_previous_coordinates(a[inliers.ravel().astype(bool)], original_shape, scale)
+    oh, ow = original_shape
+    cells = {(min(3, max(0, int(x*4/ow))), min(2, max(0, int(y*3/oh)))) for x, y in support}
+    span = np.ptp(support, axis=0)/[ow, oh]
+    # Centre flow is invariant to the centre-fixed compensation (see module doc).
     flow = (m[:, :2]@np.array([w/2, h/2])+m[:, 2]-[w/2, h/2])/dt
+    return dict(measured=True, cells=len(cells), span=span.tolist(), flow=flow, dt=dt,
+                scale_compensation=None if scale is None else float(scale))
+
+
+def judge_distributed_flow(measurement, height, fx, gyro, rotation, frontend_velocity):
+    """Estimator-dependent half: compare audit centre flow with the frontend."""
+    import numpy as np
+    if not measurement.get('measured'):
+        return measurement
+    dt, flow, cells, span = measurement['dt'], measurement['flow'], measurement['cells'], measurement['span']
     depth = height/max(rotation[2, 2], .5)
     camera_v = -(depth/fx)*(flow-fx*np.asarray(gyro)[:2])
     velocity = (rotation@[-camera_v[1], camera_v[0], 0])[:2]
     disagreement = float(np.linalg.norm(velocity-frontend_velocity)*fx*dt/depth)
-    ok = len(cells) >= 6 and min(span) >= .4 and disagreement <= 1.5
-    return dict(ok=bool(ok), cells=len(cells), span=span.tolist(),
+    ok = cells >= 6 and min(span) >= .4 and disagreement <= 1.5
+    return dict(ok=bool(ok), cells=cells, span=span,
                 disagreement_px=disagreement, velocity_xy=velocity.tolist(),
+                scale_compensation=measurement['scale_compensation'],
                 reason='agreement' if ok else 'ambiguous spatial support/flow')

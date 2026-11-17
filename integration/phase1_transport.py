@@ -17,6 +17,7 @@ import os
 import socket
 import time
 from stage_timing import activate,sample,stage,mark,FaultFile,AsyncAudit
+from skip_log import SkipLog
 import uuid
 
 from physics_clock_mapping import AppliedClockMapping,PATCHED_SHA
@@ -134,7 +135,10 @@ def main():
     def log(name,**row):
         # Preserve a caller's event time; otherwise stamp the logging receipt.
         audit_writer.put(name,{'host_ns':time.monotonic_ns(),**row})
-    running=[True];clock=[None,None];pending=OrderedDict();tokens={};expected={};last_odom=[None]
+    # Every odometry sample that is not forwarded names its reason in
+    # events.jsonl (event='odometry_skipped'), rate-limited per reason.
+    skip_log=SkipLog(lambda row:log('events',**row))
+    running=[True];clock=[None,None];pending=OrderedDict();tokens={};expected={};last_odom=[None];last_odom_acquisition=[None]
     stats=dict(odom_received=0,mapped_pairs=0,vision_received=0,validated_capture_packets=0,vision_sent_to_fcu=0,
                control_sent_to_fcu=0,heartbeat=0,armed_samples=0,clock_proof_checks=0,system_time_requests=0)
     def block(reason):
@@ -160,16 +164,20 @@ def main():
         callback_entry=time.monotonic_ns()
         mark('odom_arrival_age',source_ns=ns,callback_entry_host_ns=callback_entry,
              ros_clock_ns=clock[0],age_sim_ns=None if clock[0] is None else clock[0]-ns)
-        last_odom[0]=callback_entry
+        last_odom[0]=callback_entry;last_odom_acquisition[0]=ns
         try:
             with sample(ns),stage('callback_validation'):
                 convert(msg)  # invalidate immediately, before waiting for a time bracket
             if clock[0] is not None and clock[0]-ns>200_000_000:
                 raise ValueError('stale VIO input')
         except ValueError as exc:
+            skip_log(str(exc),ns,'transport_receive',ros_clock_ns=clock[0],
+                     age_sim_ns=None if clock[0] is None else clock[0]-ns,gate_blocked=gate.durable.state['blocked'])
             block(str(exc));return
         pending[ns]=(msg,time.monotonic_ns());stats['odom_received']+=1
-        if len(pending)>32:block('bounded odometry buffer overflow');pending.popitem(last=False)
+        if len(pending)>32:
+            block('bounded odometry buffer overflow');dropped,_=pending.popitem(last=False)
+            skip_log('bounded odometry buffer overflow',dropped,'transport_queue',pending=len(pending))
         pos=msg.pose.pose.position;vel=msg.twist.twist.linear
         log('odom',acquisition_ns=ns,callback_entry_host_ns=callback_entry,position_ned=[pos.x,pos.y,pos.z],velocity_body=[vel.x,vel.y,vel.z],
             pose_covariance=list(msg.pose.covariance),twist_covariance=list(msg.twist.covariance))
@@ -279,6 +287,8 @@ def main():
             if fault_control.read().get('fault')=='stale' and now-arrival<300_000_000:
                 continue  # delay the ACTUAL sample; never retimestamp or synthesize it
             if now-arrival>200_000_000:
+                skip_log('stale queued VIO',ns,'transport_queue',queued_ns=now-arrival,
+                         token=ns in tokens,gate_clock_ns=gate.clock,gate_blocked=gate.durable.state['blocked'])
                 block('stale queued VIO');pending.pop(ns);tokens.pop(ns,None);continue
             if gate.clock is None or ns>gate.clock:continue  # wait for future bracket, never extrapolate
             token=tokens.pop(ns);pending.pop(ns)
@@ -302,7 +312,10 @@ def main():
                 with sample(ns),stage('lifecycle_pair'):
                     pair=gate.pair(msg,token,now,True,PoseWithCovarianceStamped,TwistWithCovarianceStamped)
                 if pair is None:
-                    egress.block();log('events',event='pair_blocked',reason=gate.reason,acquisition_ns=ns);continue
+                    egress.block()
+                    skip_log(gate.reason or 'pair blocked',ns,'transport_pair',gate_blocked=gate.durable.state['blocked'],
+                             ros_clock_ns=gate.ros_clock)
+                    continue
                 pose,speed,meta=pair
                 wire_expected=None
                 if simulation is not None:
@@ -325,7 +338,9 @@ def main():
                 log('mapping',**meta,source_clock_ns=clock[0],publish_host_ns=time.monotonic_ns(),forwarding_enabled=False)
                 # Reuse validated conversion, publish diagnostic only after BOTH
                 # packets pass the final wire guard; no repeated matrix work.
-            except (ValueError,KeyError,FileNotFoundError) as exc:block(str(exc))
+            except (ValueError,KeyError,FileNotFoundError) as exc:
+                skip_log(str(exc),ns,'transport_pair',gate_blocked=gate.durable.state['blocked'])
+                block(str(exc))
     try:
         while running[0] and time.monotonic()-started<a.duration:
             # Consume actual clock receipts and AP evidence before any new
@@ -483,6 +498,11 @@ def main():
                 if not heartbeat_fresh(last_heartbeat,mapping.anchors[-1]['target_ns']):block('FCU heartbeat missing/stale')
                 elif not poses.get_subscription_count() or not speeds.get_subscription_count():block('MAVROS disconnected')
                 elif last_odom[0] is not None and time.monotonic_ns()-last_odom[0]>500_000_000:
+                    # Names the last sample that DID arrive; the source's own
+                    # skips.jsonl/stream.jsonl say why the following ones did not.
+                    skip_log('VIO availability watchdog',last_odom_acquisition[0],'transport_watchdog',
+                             odom_age_host_ns=time.monotonic_ns()-last_odom[0],ros_clock_ns=clock[0],
+                             flight_state=None if flight is None else flight.state)
                     block('VIO availability watchdog')
                 elif a.mavros_pid_file is not None:
                     try:
@@ -496,6 +516,7 @@ def main():
         if flight is not None:flight.emergency('Transport failure: '+str(exc),time.monotonic_ns())
         raise
     finally:
+        skip_log.flush('transport')
         gate.close();egress.close();tcp.close();udp.close()
         # Evidence copy only. The named-volume originals remain authoritative
         # across restart and are never restored from this diagnostic snapshot.

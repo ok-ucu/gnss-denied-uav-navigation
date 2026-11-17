@@ -14,7 +14,10 @@ import hashlib
 import uuid
 import os
 import threading
+import contextvars
+from concurrent.futures import ThreadPoolExecutor
 from stage_timing import activate,stage,sample,mark,FaultFile,critical_stage
+from skip_log import SkipLog
 
 
 def recovery_deadline(stamp):
@@ -80,7 +83,9 @@ def main():
     from vio_sensor_capture import capture
     from vio_geometry import camera_to_body_xy
     from vio_estimation_inputs import fixed_mount, vertical_inputs
-    from vio_quality_gate import QualityGate, covariance_ok, distributed_flow, fresh, ekf_ready
+    from vio_quality_gate import QualityGate, covariance_ok, fresh, ekf_ready
+    from vio_quality_gate import measure_distributed_flow, judge_distributed_flow
+    from vio_scale_compensation import predicted_scale, compensate_previous
     cv2.setNumThreads(1)
     rclpy.init()
     ros_node = rclpy.create_node('vio_gated_output')
@@ -89,6 +94,17 @@ def main():
     epoch_start=[None]
     log = (a.output_dir/'stream.jsonl').open('x')
     publications = (a.output_dir/'publications.jsonl').open('x')
+    skips_file = (a.output_dir/'skips.jsonl').open('x')
+    def emit_skip(row):
+        # Rate-limited by SkipLog; mirrored to stderr (captured as console evidence).
+        line=json.dumps(dict(row,host_monotonic_s=time.monotonic()),allow_nan=False)
+        skips_file.write(line+'\n');skips_file.flush()
+        print(line,file=sys.stderr,flush=True)
+    skip_log = SkipLog(emit_skip)
+    # The audit's image work runs here while the frame thread runs the frontend.
+    # Flight evidence: at real-time factor ~1 (airborne) the 100 ms frame budget
+    # was exceeded (median 122 ms), the backlog grew until 'stale at publication'.
+    audit_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix='vio-audit')
     gate = QualityGate()
     ekf = VioEKF()
     frontend = FlowFrontend(205.4696)
@@ -98,7 +114,7 @@ def main():
     sensor_r = np.array([[math.cos(-1.57), math.sin(-1.57)**2, math.sin(-1.57)*math.cos(-1.57)],
                          [0, math.cos(-1.57), -math.sin(-1.57)],
                          [-math.sin(-1.57), math.cos(-1.57)*math.sin(-1.57), math.cos(-1.57)**2]])
-    state = dict(last_imu=None, filter_t=None, previous=None, previous_t=None,
+    state = dict(last_imu=None, filter_t=None, previous=None, previous_t=None, previous_depth=None,
                  imu_index=0, initialized=False, reset_after=None, last_frame_wall=None,
                  last_seen_imu=None, last_imu_wall=None, frame_stamp=None, emitted=0,
                  accepted=0, rejected=0, gaps=0, recoveries=0)
@@ -231,6 +247,7 @@ def main():
                                      applied_monotonic_s=wall, frame_stamp=t))
             active_fault[0] = injected
         if injected == 'camera_loss':
+            skip_log('injected camera loss', round(t*1e9), 'vio_source', t=t, fault=injected)
             return
         state['last_frame_wall'] = wall
         state['frame_stamp'] = t
@@ -276,7 +293,7 @@ def main():
                 if not recovery_ready(imu, t, state['reset_after']):
                     raise ValueError('waiting for continuous IMU recovery')
                 ekf, frontend = VioEKF(), FlowFrontend(205.4696)
-                state.update(last_imu=None, filter_t=None, previous=None, previous_t=None, initialized=False,
+                state.update(last_imu=None, filter_t=None, previous=None, previous_t=None, previous_depth=None, initialized=False,
                              reset_after=None, recoveries=state['recoveries']+1)
                 epoch_start[0]=round(t*1e9)
                 row['position_epoch_reset'] = True
@@ -352,18 +369,39 @@ def main():
                 frontend = FlowFrontend(205.4696)
                 previous = None
                 block('camera gap', t)
+            # Same depth the frontend uses; GT-derived height is already an input.
+            depth = camera_height/max(float(r[2, 2]), .5)
+            scale = None
+            if previous is not None and frontend.prev is not None:
+                scale = predicted_scale(state['previous_depth'], depth)
+                # Both the pinned frontend (unmodified code, compensated input)
+                # and the audit see the same compensated previous frame.
+                frontend.prev = compensate_previous(frontend.prev, scale)
+            row['scale_compensation'] = scale
+            audit_future = None
+            if previous is not None:
+                def timed_measure(previous, gray, dt, scale):
+                    begin=time.monotonic()
+                    with critical_stage('source_spatial_audit'):
+                        measured=measure_distributed_flow(previous, gray, dt, scale)
+                    return measured, time.monotonic()-begin
+                audit_future = audit_pool.submit(contextvars.copy_context().run, timed_measure,
+                                                 previous, gray, t-previous_t, scale)
             flow_begin=time.monotonic()
             with critical_stage('source_frontend'):
                 result = frontend.process(gray, t, camera_height, gyro, r)
             row['frontend_wall_s']=time.monotonic()-flow_begin
-            state.update(previous=gray, previous_t=t)
-            audit = {'ok': False, 'reason': 'frontend unavailable'}
+            state.update(previous=gray, previous_t=t, previous_depth=depth)
+            audit = {'ok': False, 'reason': 'frontend unavailable' if previous is not None else 'no previous comparable frame'}
             accepted = False
+            measured = None
+            if audit_future is not None:
+                wait_begin=time.monotonic()
+                measured, row['audit_wall_s'] = audit_future.result()
+                row['audit_wait_s']=time.monotonic()-wait_begin
             if result is not None:
-                audit_begin=time.monotonic()
-                with critical_stage('source_spatial_audit'):
-                    audit = distributed_flow(previous, gray, t-previous_t, camera_height, 205.4696, gyro, r, result.v_xy)
-                row['audit_wall_s']=time.monotonic()-audit_begin
+                if measured is not None:
+                    audit = judge_distributed_flow(measured, camera_height, 205.4696, gyro, r, result.v_xy)
                 velocity = camera_to_body_xy(result.v_xy, r, gyro, lever_frd)
                 row.update(flow_xy=velocity.tolist(), flow_camera_xy=result.v_xy.tolist())
                 if audit['ok']:
@@ -419,6 +457,17 @@ def main():
             row['error'] = str(exc)
         row.setdefault('processing_s',time.monotonic()-wall)
         row['processing_thread_cpu_s']=time.thread_time()-frame_cpu
+        if not row['published']:
+            # Every unpublished frame names its reason in stream.jsonl; the
+            # rate-limited skip log summarises them without flooding.
+            row['skip_reason'] = row.get('error') or gate.reason or 'not ready'
+            audit_row = row.get('audit') or {}
+            skip_log(row['skip_reason'], round(t*1e9), 'vio_source', t=t, gate_ready=gate.ready,
+                     gate_count=gate.count, inliers=row.get('inliers'), frontend_available=row.get('frontend_available'),
+                     audit_reason=audit_row.get('reason'), clock_age_s=row.get('clock_age'),
+                     publication_age_s=(row.get('publication_clock_check') or {}).get('simulation_age_s'),
+                     processing_s=row['processing_s'], scale_compensation=row.get('scale_compensation'),
+                     epoch=state['recoveries'])
         write(row)
 
     def handle(frame,buffers):
@@ -439,9 +488,12 @@ def main():
         (a.output_dir/'capture_meta.json').write_text(json.dumps(dict(qos=data['qos'], overflows=data['buffer_overflows'],camera_profile=data['camera_profile'],isolated_imu=data.get('isolated_imu')), indent=2)+'\n')
     finally:
         # capture owns shutdown; destroy publisher node before process exits.
+        audit_pool.shutdown(wait=True)
         ros_node.destroy_node()
         log.close()
         publications.close()
+        skip_log.flush('vio_source')
+        skips_file.close()
         (a.output_dir/'gate_transitions.json').write_text(json.dumps(gate.transitions, indent=2)+'\n')
         (a.output_dir/'fault_events.json').write_text(json.dumps(fault_events, indent=2)+'\n')
         summary = {k: state[k] for k in ('emitted', 'accepted', 'rejected', 'gaps', 'recoveries')}
