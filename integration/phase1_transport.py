@@ -275,8 +275,18 @@ def main():
     def drain():
         nonlocal initial_allowed
         now=time.monotonic_ns()
-        if not mapping.verified or clock[0] is None:return
-        if simulation is not None and (not simulation.ready(now) or not origin_confirmed):return
+        # During initial simulation preflight, expire only old queued samples.
+        # Never authorize, retimestamp or forward them.
+        if simulation is not None and initial_allowed and gate.durable.state['blocked']:
+            for ns, (_, arrival) in list(pending.items()):
+                if now - arrival > 200_000_000:
+                    pending.pop(ns, None)
+                    tokens.pop(ns, None)
+
+        if not mapping.verified or clock[0] is None:
+            return
+        if simulation is not None and (not simulation.ready(now) or not origin_confirmed):
+            return
         if not heartbeat_fresh(last_heartbeat,mapping.anchors[-1]['target_ns']):
             if not initial_allowed:block('FCU heartbeat missing/stale')
             return
@@ -318,11 +328,6 @@ def main():
                     continue
                 pose,speed,meta=pair
                 wire_expected=None
-                if simulation is not None:
-                    q=pose.pose.pose.orientation;v=speed.twist.twist.linear;pos=pose.pose.pose.position
-                    wire_expected={
-                        'VISION_POSITION_ESTIMATE':expected_wire(dict(kind='pose',values=[pos.x,pos.y,pos.z,q.x,q.y,q.z,q.w],covariance=list(pose.pose.covariance))),
-                        'VISION_SPEED_ESTIMATE':expected_wire(dict(kind='speed',values=[v.x,v.y,v.z],covariance=list(speed.twist.covariance)))}
                 mark('permission_created',source_ns=ns,approved_host_ns=meta['approved_host_ns'],
                      deadline_host_ns=meta['allowed_host_deadline_ns'],remaining_ns=meta['allowed_host_deadline_ns']-time.monotonic_ns())
                 with sample(ns),stage('egress_approve'):
@@ -332,6 +337,13 @@ def main():
                     raise ValueError('permission expired during conversion; never extend it')
                 with sample(ns),stage('mavros_enqueue'):
                     poses.publish(pose);speeds.publish(speed)
+                # Diagnostic wire conversion happens outside the permission
+                # critical path. No deadline is extended or reset.
+                if simulation is not None:
+                    q=pose.pose.pose.orientation;v=speed.twist.twist.linear;pos=pose.pose.pose.position
+                    wire_expected={
+                        'VISION_POSITION_ESTIMATE':expected_wire(dict(kind='pose',values=[pos.x,pos.y,pos.z,q.x,q.y,q.z,q.w],covariance=list(pose.pose.covariance))),
+                        'VISION_SPEED_ESTIMATE':expected_wire(dict(kind='speed',values=[v.x,v.y,v.z],covariance=list(speed.twist.covariance)))}
                 expected[meta['fcu_ns']//1000]=dict(position=[msg.pose.pose.position.x,msg.pose.pose.position.y,msg.pose.pose.position.z],
                     covariance=list(msg.pose.covariance),meta=meta,diagnostic=gate.last_transformed,valid_seen=set(),wire=wire_expected)
                 stats['mapped_pairs']+=1
@@ -498,11 +510,24 @@ def main():
                 if not heartbeat_fresh(last_heartbeat,mapping.anchors[-1]['target_ns']):block('FCU heartbeat missing/stale')
                 elif not poses.get_subscription_count() or not speeds.get_subscription_count():block('MAVROS disconnected')
                 elif last_odom[0] is not None and time.monotonic_ns()-last_odom[0]>500_000_000:
+
                     # Names the last sample that DID arrive; the source's own
                     # skips.jsonl/stream.jsonl say why the following ones did not.
                     skip_log('VIO availability watchdog',last_odom_acquisition[0],'transport_watchdog',
                              odom_age_host_ns=time.monotonic_ns()-last_odom[0],ros_clock_ns=clock[0],
                              flight_state=None if flight is None else flight.state)
+
+                    watchdog_now=time.monotonic_ns()
+                    mark(
+                        'vio_watchdog_diagnostic',
+                        odom_age_ns=watchdog_now-last_odom[0],
+                        pair_age_ns=(watchdog_now-flight.last_pair
+                                     if flight is not None and flight.last_pair is not None
+                                     else None),
+                        clock_mapping_verified=mapping.verified,
+                        gate_blocked=gate.durable.state['blocked']
+                    )
+
                     block('VIO availability watchdog')
                 elif a.mavros_pid_file is not None:
                     try:

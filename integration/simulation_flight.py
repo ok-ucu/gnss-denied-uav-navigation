@@ -137,8 +137,21 @@ def build_proof(run,bin_path,output):
     files=(*PROOF_INPUTS,str(bin_path.relative_to(run)))
     proof=dict(schema=1,analysis=analysis,decoded_records=records,decoder='pymavlink DataFlash',
                source_sha256=sha(Path(__file__)),manifest={p:sha(run/p) for p in files})
-    with output.open('x') as f:json.dump(proof,f,allow_nan=False)
+    with output.open('x') as f:
+        json.dump(json_safe(proof), f, allow_nan=False)
     return output
+
+
+def json_safe(value):
+    import math
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    if isinstance(value, dict):
+        return {k: json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [json_safe(v) for v in value]
+    return value
+
 
 
 def verify_proof(path,*,redecode=True):
@@ -156,7 +169,7 @@ def verify_proof(path,*,redecode=True):
         if not file.is_relative_to(run) or sha(file)!=digest:raise ValueError('Fusion evidence changed: '+name)
     bins=[n for n in p['manifest'] if n.startswith('state/fcu/logs/') and n.endswith('.BIN')]
     if len(bins)!=1:raise ValueError('Require one exact baseline DataFlash file')
-    if redecode and decode_dataflash(run/bins[0])!=p['decoded_records']:
+    if redecode and json_safe(decode_dataflash(run/bins[0]))!=p['decoded_records']:
         raise ValueError('DataFlash decoder output does not match the claimed fusion proof')
     if evidence_analysis(run,p['decoded_records'])!=p['analysis']:raise ValueError('Contradictory fusion proof')
     return run,read_json(run/'artifacts/simulation_vision_permit.json')

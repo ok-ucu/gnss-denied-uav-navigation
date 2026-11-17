@@ -58,7 +58,7 @@ def main():
     try:
         command(compose+['up','-d','--no-build','--pull','never'],'flight-compose-up.txt',60)
         owned=json.loads(subprocess.check_output(['docker','inspect',*names.values()],text=True,timeout=10))
-        project='gnss-p1-integrated-'+a.run_id
+        project='gnss-phase1-integrated-'+a.run_id
         if len(owned)!=4 or any(r['Config'].get('Labels',{}).get('com.docker.compose.project')!=project for r in owned):
             owned=None;raise ValueError('Cannot establish owned container identities')
         (run/'evidence/flight-owned.json').write_text(json.dumps(owned,indent=2)+'\n')

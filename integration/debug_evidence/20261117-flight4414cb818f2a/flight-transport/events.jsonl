@@ -1,0 +1,4 @@
+{"host_ns": 24160182906661, "event": "explicit_simulation_origin_requested", "origin": [-353632620, 1491652370, 584000]}
+{"host_ns": 24160202074384, "event": "diagnostic_reference_initialized", "reference": "SIMULATION_DISARMED:36b3ab7c-b7ae-4cbf-8e7d-0053ce873f15", "initial_acquisition_ns": 24200000000, "authorization_scope": "DISARMED Gazebo/SITL vision only", "forwarding_enabled": false}
+{"host_ns": 24186789431138, "event": "odometry_skipped", "stage": "transport_pair", "reason": "permission expired during conversion; never extend it", "acquisition_ns": 37900000000, "suppressed_since_last": 0, "suppressed_first_acquisition_ns": null, "suppressed_last_acquisition_ns": null, "gate_blocked": false}
+{"host_ns": 24186790203216, "event": "latched_closed", "reason": "permission expired during conversion; never extend it"}
