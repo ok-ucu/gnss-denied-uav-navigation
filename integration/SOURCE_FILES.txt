@@ -9,6 +9,7 @@ integration/LINUX_EVIDENCE_REVIEW.md
 integration/LINUX_GPU_HANDOFF.md
 integration/MAVROS.isolated.Dockerfile
 integration/PHASE1_STATUS.md
+integration/PI5_VIO.md
 integration/README.md
 integration/SOURCE_COMMIT.md
 integration/SOURCE_DEPENDENCIES.md
@@ -96,6 +97,8 @@ integration/phase1_capture_mavros.yaml
 integration/phase1_control.py
 integration/phase1_transport.py
 integration/physics_clock_mapping.py
+integration/pi5_vio.example.json
+integration/pi5_vio.py
 integration/preflight_ekf3.py
 integration/probe_live_vio_preflight.py
 integration/probe_patched_timesync.py
@@ -106,6 +109,7 @@ integration/reset_safety.py
 integration/run_latency_matrix.py
 integration/run_navigation_preflight.py
 integration/run_phase1_validation.py
+integration/run_pi5_vio.py
 integration/run_simulated_flight.py
 integration/run_vio_source_probe.sh
 integration/run_vio_stream.py
@@ -140,6 +144,7 @@ integration/tests/test_mavros_wire.py
 integration/tests/test_navigation_preflight.py
 integration/tests/test_permission_deadlines.py
 integration/tests/test_phase1_pipeline.py
+integration/tests/test_pi5_vio.py
 integration/tests/test_reset_safety.py
 integration/tests/test_runtime_candidate.py
 integration/tests/test_simulation_flight.py
