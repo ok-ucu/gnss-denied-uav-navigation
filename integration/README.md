@@ -325,8 +325,7 @@ zero errors. Missing raw BIN/GT/clock/camera evidence prevents overall PASS.
 Covariance calibration remains NOT VERIFIED; plots/NEES are descriptive and Z
 uses declared Gazebo GT height. Preserve raw evidence for independent review.
 
-Separate runtime issue found during this audit: the transport `log()` currently
-constructs `dict(host_ns=..., **row)`, while FlightController supplies `host_ns`
-in its events. Python rejects that duplicate keyword. This analysis-only change
-does not modify transport: resolve the logging collision before any separately
-approved native flight attempt. Missing flight logs stay NOT VERIFIED here.
+The transport logger preserves an explicit FlightController `host_ns`; other
+events keep their logging-receipt timestamp. The duplicate-keyword collision is
+covered by an offline controller-to-JSONL regression. Native flight logging is
+still NOT TESTED; missing flight logs stay NOT VERIFIED in analysis.

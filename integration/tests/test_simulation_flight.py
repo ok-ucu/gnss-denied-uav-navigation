@@ -1,4 +1,5 @@
 """Synthetic policy/evidence fixtures ONLY. Never send a command or open an FCU."""
+import ast
 import copy
 import io
 import json
@@ -62,6 +63,31 @@ class FlightPolicyTests(unittest.TestCase):
         self.assertTrue(self.c.done);self.assertEqual(self.c.result,'PASS')
         self.assertEqual([cmd for cmd,_ in self.commands],[401,179,176,400,22,21])
         self.assertEqual(next(args for cmd,args in self.commands if cmd==400),[1,0,0.,0.,0.,0.,0.])
+
+    def test_actual_transport_logger_preserves_flight_event_timestamp(self):
+        # Compile ONLY the real nested logger, not main(): no ROS, sockets or
+        # authorization. Exercise its actual FlightController callback path.
+        source=Path(phase1_transport.__file__)
+        main=next(n for n in ast.parse(source.read_text()).body if isinstance(n,ast.FunctionDef) and n.name=='main')
+        logger=next(n for n in main.body if isinstance(n,ast.FunctionDef) and n.name=='log')
+        with tempfile.TemporaryDirectory() as temp:
+            path=Path(temp)/'flight.jsonl'
+            with path.open('x') as output:
+                audit=phase1_transport.AsyncAudit({'flight':output})
+                namespace=dict(audit_writer=audit,time=S(monotonic_ns=lambda:6_000_000_000))
+                exec(compile(ast.Module(body=[logger],type_ignores=[]),str(source),'exec'),namespace)
+                self.c.record=lambda **row:namespace['log']('flight',**row)
+                try:
+                    self.preflight()  # prearm_snapshot, then transition GUIDED
+                    namespace['log']('flight',event='simulation_command_sent',command=176,params=[1,4])
+                finally:audit.close()
+            rows=[json.loads(line) for line in path.read_text().splitlines()]
+        self.assertEqual([r['event'] for r in rows],['prearm_snapshot','flight_transition','simulation_command_sent'])
+        self.assertEqual([r['host_ns'] for r in rows],[5_000_000_000,5_000_000_000,6_000_000_000])
+        self.assertEqual(rows[0]['parameters'],self.params)
+        self.assertEqual(rows[0]['home'],self.origin)
+        self.assertEqual((rows[1]['previous'],rows[1]['state']),('PREFLIGHT','GUIDED'))
+        self.assertEqual((rows[2]['command'],rows[2]['params']),(176,[1,4]))
 
     def test_missing_vision_or_prearm_checks_never_arm(self):
         for i in range(451):self.feed(i*.1,vision=False)

@@ -132,7 +132,8 @@ def main():
     raw=(out/'vision.mavlink').open('xb');tcpraw=(out/'fcu_tcp.bin').open('xb')
     audit_writer=AsyncAudit(dict(logs,raw=raw,tcpraw=tcpraw))
     def log(name,**row):
-        audit_writer.put(name,dict(host_ns=time.monotonic_ns(),**row))
+        # Preserve a caller's event time; otherwise stamp the logging receipt.
+        audit_writer.put(name,{'host_ns':time.monotonic_ns(),**row})
     running=[True];clock=[None,None];pending=OrderedDict();tokens={};expected={};last_odom=[None]
     stats=dict(odom_received=0,mapped_pairs=0,vision_received=0,validated_capture_packets=0,vision_sent_to_fcu=0,
                control_sent_to_fcu=0,heartbeat=0,armed_samples=0,clock_proof_checks=0,system_time_requests=0)
