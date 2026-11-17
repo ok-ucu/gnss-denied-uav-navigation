@@ -16,7 +16,17 @@ def analyze(directory, fcu_directory="fcu", stream_directory="attempt02"):
     rows = df['records']
     wire = [json.loads(line) for line in (p / stream_directory / 'wire.jsonl').read_text().splitlines()]
     decisions = json.loads((p / stream_directory / 'decisions.json').read_text())
-    result = {'scope': 'SYNTHETIC static ground trajectory; not camera VIO or flight', 'channels': {}, 'cores': {}}
+    return analyze_records(rows, df['params'], wire, decisions)
+
+
+def analyze_records(rows, params, wire, decisions=(), *, phase_windows=None,
+                    scope='SYNTHETIC static ground trajectory; not camera VIO or flight'):
+    """Same bench diagnostics on decoded records; explicit windows for adapters.
+
+    Counts/innovation extrema are descriptive, never per-message fusion proof.
+    The XY RMS field is relative to estimator origin, NOT a GT trajectory error.
+    """
+    result = {'scope': scope, 'channels': {}, 'cores': {}}
     for name, log, length in [('VISION_POSITION_ESTIMATE', 'VISP', 21), ('VISION_SPEED_ESTIMATE', 'VISV', 9)]:
         incoming = [r for r in wire if r['direction'] == 'to_fcu' and r['message']['mavpackettype'] == name]
         received = [r for r in rows if r['mavpackettype'] == log]
@@ -32,11 +42,12 @@ def analyze(directory, fcu_directory="fcu", stream_directory="attempt02"):
     positions = [r for r in rows if r['mavpackettype'] == 'VISP']
     lo, hi = positions[0]['TimeUS'], positions[-1]['TimeUS']
     result['stream_window_boot_us'] = [lo, hi]
-    result['params'] = {k:v for k,v in df['params'].items() if k.startswith(('EK3_SRC', 'VISO', 'GPS_TYPE', 'AHRS_EKF_TYPE'))}
+    result['params'] = {k:v for k,v in params.items() if k.startswith(('EK3_SRC', 'VISO', 'GPS_TYPE', 'AHRS_EKF_TYPE'))}
     result['messages'] = [r for r in rows if r['mavpackettype'] == 'MSG' and any(s in r['Message'] for s in ['external nav', 'aiding', 'origin'])]
     for core in (0, 1):
         core_result = {}
-        for phase, start, end in [('before', lo-5e6, lo), ('steady', lo+5e6, hi), ('dropout', hi+10e6, hi+25e6)]:
+        windows=phase_windows if phase_windows is not None else [('before', lo-5e6, lo), ('steady', lo+5e6, hi), ('dropout', hi+10e6, hi+25e6)]
+        for phase, start, end in windows:
             subset = [r for r in rows if r.get('C') == core and start < r['TimeUS'] < end]
             status = [r for r in subset if r['mavpackettype'] == 'XKF4']
             innovations = [r for r in subset if r['mavpackettype'] == 'XKF3']

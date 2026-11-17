@@ -20,6 +20,7 @@ integration/analyze_ekf3_readiness.py
 integration/analyze_mavros_wire.py
 integration/analyze_navigation_clocks.py
 integration/analyze_phase1_run.py
+integration/analyze_simulated_flight.py
 integration/analyze_stage_latency.py
 integration/analyze_vio_run.py
 integration/analyze_vio_stability.py
@@ -147,6 +148,7 @@ integration/tests/test_phase1_pipeline.py
 integration/tests/test_pi5_vio.py
 integration/tests/test_reset_safety.py
 integration/tests/test_runtime_candidate.py
+integration/tests/test_simulated_flight_report.py
 integration/tests/test_simulation_flight.py
 integration/tests/test_simulation_vision.py
 integration/tests/test_source_cleanup.py

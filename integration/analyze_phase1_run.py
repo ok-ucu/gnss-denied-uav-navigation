@@ -79,6 +79,32 @@ def evaluate(rows, poses, ground_z):
     return result,(t,state,gt,gv,error,covariance)
 
 
+def plot_trajectory(plot_data, path, *, dimensions=2, title='Static descriptive comparison. Reset-containing capture is HOLD.',
+                    xlabel='simulation seconds (declared normal window)', decorate=None, velocity_error=False):
+    """Render existing evaluation arrays; no alignment/error recalculation."""
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    t,state,gt,gv,error,covariance=plot_data
+    figure,axes=plt.subplots(4 if velocity_error else 3,dimensions,figsize=(11,10 if velocity_error else 8),sharex=True)
+    for axis in range(dimensions):
+        axes[0,axis].plot(t-t[0],state[:,axis]-state[0,axis],label='VIO')
+        axes[0,axis].plot(t-t[0],gt[:,axis]-gt[0,axis],label='GT evaluation')
+        axes[1,axis].plot(t-t[0],state[:,axis+3],label='VIO velocity')
+        axes[1,axis].plot(t-t[0],gv[:,axis],label='GT velocity')
+        axes[2,axis].plot(t-t[0],error[:,axis],label='position error')
+        if velocity_error:axes[3,axis].plot(t-t[0],state[:,axis+3]-gv[:,axis],label='velocity error')
+        if dimensions==3 or velocity_error:
+            axes[0,axis].set_title(('North','East','Down')[axis])
+            axes[0,axis].set_ylabel('relative position m');axes[1,axis].set_ylabel('velocity m/s')
+            axes[2,axis].set_ylabel('position error m')
+            if velocity_error:axes[3,axis].set_ylabel('velocity error m/s')
+    for ax in axes.flat:
+        ax.legend();ax.grid();ax.set_xlabel(xlabel)
+        if decorate:decorate(ax,float(t[0]))
+    figure.suptitle(title);figure.tight_layout();figure.savefig(path);plt.close(figure)
+
+
 def analyze(run, output):
     output.mkdir(exist_ok=False)
     evidence = run/'evidence'
@@ -163,21 +189,7 @@ def analyze(run, output):
                   actual_ros_clock_resets=reset_after, faults=faults,transports=transports,
                   isolation=json.loads((evidence/'isolation.json').read_text()))
     if plot_data is not None:
-        import matplotlib
-        matplotlib.use('Agg')
-        import matplotlib.pyplot as plt
-        t,state,gt,gv,error,covariance = plot_data
-        figure,axes = plt.subplots(3,2,figsize=(11,8),sharex=True)
-        for axis in range(2):
-            axes[0,axis].plot(t-t[0],state[:,axis]-state[0,axis],label='VIO')
-            axes[0,axis].plot(t-t[0],gt[:,axis]-gt[0,axis],label='GT evaluation')
-            axes[1,axis].plot(t-t[0],state[:,axis+3],label='VIO velocity')
-            axes[1,axis].plot(t-t[0],gv[:,axis],label='GT velocity')
-            axes[2,axis].plot(t-t[0],error[:,axis],label='position error')
-        for ax in axes.flat:
-            ax.legend();ax.grid();ax.set_xlabel('simulation seconds (declared normal window)')
-        figure.suptitle('Static descriptive comparison. Reset-containing capture is HOLD.')
-        figure.tight_layout();figure.savefig(output/'static_trajectory.png');plt.close(figure)
+        plot_trajectory(plot_data,output/'static_trajectory.png')
     (output/'metrics.json').write_text(json.dumps(result,indent=2,allow_nan=False)+'\n')
     print(json.dumps(dict(decision=result['decision'],publications=len(sent),received=len(received),
                           normal_evaluation=evaluation),indent=2))

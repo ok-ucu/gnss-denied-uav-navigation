@@ -271,3 +271,62 @@ Evidence: `flight-host.jsonl`, `flight-owned.json`, `current-fusion-*.BIN`,
 completion: inspect post-flight source selection, innovations, VIO accuracy/
 covariance and cleanup. No simulator was armed/flown by this implementation.
 Phase1 remains HOLD / NO GO.
+
+## Independent post-flight analysis (offline only)
+
+After closing a separately approved Linux simulation run, use the exact raw BIN:
+
+```bash
+: "${P1_FLIGHT:?completed run directory}"
+: "${P1_BIN:?exact raw BIN below that run/state/fcu/logs}"
+python3 -B integration/analyze_simulated_flight.py "$P1_FLIGHT" \
+  --bin "$P1_BIN" --output "$P1_FLIGHT/analysis-postflight-01"
+```
+
+Output must be NEW and outside captured evidence/artifacts/state. The command
+never connects to ROS/FCU or runs any flight command. Host dependencies are NumPy,
+Matplotlib (Agg plots), and pymavlink (actual DataFlash decoding). Missing decoder
+or plotting packages are NOT VERIFIED; they are never auto-installed.
+
+Inputs: `flight-source/{configuration,summary}.json`, stream/publications/poses/
+ros_camera/imu/clocks JSONL, `flight-observer/input.jsonl`, `flight-transport/`
+flight/result/wire/mapping/fcuwitness/stages/summary/raw TCP evidence, applied CSV,
+run identity, simulation permit, flight plan, firmware copy and the exact raw BIN.
+Names follow the actual launcher (`flight_result.json`, `flight.jsonl`,
+`fcu_tcp.bin`, `evidence/applied.csv`); no renamed/capture-only substitution.
+
+`report.json` and `REPORT.md` contain independent completion, GPS-off, camera
+provenance, ExternalNav fusion, accuracy, continuity, physical GT movement and
+LAND/disarmed verdicts plus a relative-path SHA256 manifest. Exit codes: PASS0,
+FAIL1, NOT VERIFIED2. FAIL dominates missing evidence. A recorded test PASS is
+not authorization or Phase1 release; safety flags remain false and decision HOLD.
+
+Clock analysis replays raw applied anchors at their recorded validation times,
+cross-checks SYSTEM_TIME against actual FCU TCP bytes, and reuses the existing
+mapper for each acquisition decision. No extrapolation, silent sorting, reset
+repair, fitted scale or fitted yaw. Phase markers are bounded anchor intervals.
+This is not a verified exposure-to-FCU wall latency bound.
+
+Metrics reuse `analyze_phase1_run.evaluate` and the extracted
+`analyze_ekf3_fusion.analyze_records`; historical capture/bench defaults remain.
+The whole TAKEOFF→HOVER→LAND window is evaluated, including blocked states.
+Small RMSE cannot hide missing output, reset or aiding loss. Accuracy uses the
+existing0.2m XY RMSE /0.15m/s velocity /0.4m maximum-error /98% state-coverage
+criteria; no horizontal-movement minimum is imposed on a vertical hover scenario.
+Physical motion uses the existing controller envelopes. Both pinned bench cores
+0/1 require source/status/innovation coverage and explicit ExternalNav aiding.
+VISP/VISV receipts are matched to source camera VIO payloads through wire/mapping
+records; receipt counts are never described as counts accepted by EKF3.
+
+Available data produces four figures: XY/height/hover drift, N/E/D position and
+velocity/error, VIO availability/gaps, and per-core EKF innovations/ratios/status/
+source set. Missing panels are omitted or reported NOT VERIFIED, not drawn as
+zero errors. Missing raw BIN/GT/clock/camera evidence prevents overall PASS.
+Covariance calibration remains NOT VERIFIED; plots/NEES are descriptive and Z
+uses declared Gazebo GT height. Preserve raw evidence for independent review.
+
+Separate runtime issue found during this audit: the transport `log()` currently
+constructs `dict(host_ns=..., **row)`, while FlightController supplies `host_ns`
+in its events. Python rejects that duplicate keyword. This analysis-only change
+does not modify transport: resolve the logging collision before any separately
+approved native flight attempt. Missing flight logs stay NOT VERIFIED here.
