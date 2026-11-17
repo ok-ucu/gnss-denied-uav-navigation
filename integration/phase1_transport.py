@@ -81,7 +81,10 @@ def main():
     p.add_argument('--fault-file',type=Path,help='Labelled local capture fault control')
     p.add_argument('--mavros-pid-file',type=Path,help='Owned local MAVROS PID, monitored fail-closed on process death')
     p.add_argument('--simulation-vision-permit',type=Path,help='Explicit run-bound DISARMED Gazebo/SITL permit; default has NO vision FCU route')
+    p.add_argument('--simulation-flight-plan',type=Path,help='SEPARATE approval: bounded simulation TAKEOFF/HOVER/LAND; requires fusion proof and simulation permit')
     a=p.parse_args()
+    if a.simulation_flight_plan is not None and a.simulation_vision_permit is None:
+        p.error('Simulation flight cannot bypass the inspected vision boundary')
     if Path(a.output_name).name!=a.output_name:raise ValueError('Output name must be a basename')
     out=a.run/'evidence'/a.output_name;out.mkdir(exist_ok=False)
     recorder=activate(out/'stages.jsonl')
@@ -89,7 +92,7 @@ def main():
     if a.initialize_capture_reference is not None:uuid.UUID(a.initialize_capture_reference)
     (out/'pid').write_text(str(os.getpid()))
     identity=json.loads((a.run/'artifacts/run_identity.json').read_text())
-    simulation=None
+    simulation=None;flight=None
     if a.simulation_vision_permit is not None:
         if a.initialize_capture_reference is not None or a.fault_file is not None:
             raise ValueError('Simulation fusion cannot reuse capture authorization or fault injection')
@@ -122,6 +125,7 @@ def main():
     speeds=node.create_publisher(TwistWithCovarianceStamped,'/mavros/vision_speed/speed_twist_cov',100)
     converted=node.create_publisher(Odometry,'/integration/phase1/odometry_enu',100)
     logs={name:(out/(name+'.jsonl')).open('x') for name in ('events','wire','mapping','fcuwitness','odom','timesync','params')}
+    if a.simulation_flight_plan is not None:logs['flight']=(out/'flight.jsonl').open('x')
     (out/'state_location.json').write_text(json.dumps(dict(path=str(state_path),
         persistence='Compose run-scoped named volume when PHASE1_GUARD_STATE_DIR is set; otherwise legacy run state',
         asynchronous_authorization=False))+'\n')
@@ -138,7 +142,9 @@ def main():
         if not egress.authorization.state['blocked']:egress.block()
         if simulation is not None:simulation.failure=reason
         if changed:log('events',event='latched_closed',reason=reason)
-    def stop(*_):running[0]=False
+    def stop(*_):
+        if flight is not None:flight.emergency('Operator stop requested',time.monotonic_ns())
+        else:running[0]=False
     signal.signal(signal.SIGTERM,stop);signal.signal(signal.SIGINT,stop)
     def on_clock(msg):
         received=time.monotonic_ns()
@@ -190,17 +196,36 @@ def main():
     dec_tcp=wire.MAVLink(None);dec_udp=wire.MAVLink(None)
     dec_tcp.robust_parsing=dec_udp.robust_parsing=True
     enc=wire.MAVLink(None,srcSystem=255,srcComponent=191)
+    flight_requests=[];last_flight_request=0;last_home_request=0;current_fusion_ready=False
+    if a.simulation_flight_plan is not None:
+        from simulation_flight import load_plan,FlightController,FlightHeartbeatGuard,LIMITS,verify_current_attestation,read_json
+        load_plan(a.simulation_flight_plan,simulation)
+        allowed={176:[1,4,0,0,0,0,0],400:[1,0,0,0,0,0,0],
+                 22:[0,0,0,0,0,0,LIMITS['target_alt_m']],21:[0]*7,
+                 401:[0]*7,179:[1,0,0,0,0,0,0]}
+        def flight_command(command,params):
+            if command not in allowed or params!=allowed[command]:
+                raise ValueError('Flight command outside fixed simulation allowlist')
+            packet=wire.MAVLink_command_long_message(1,1,command,0,*params).pack(enc)
+            enc.seq=(enc.seq+1)%256
+            if tcp.send(packet)!=len(packet):raise OSError('Partial flight command enqueue; STOP required')
+            stats['simulation_flight_commands_sent']=stats.get('simulation_flight_commands_sent',0)+1
+            log('flight',event='simulation_command_sent',command=command,params=params)
+        flight=FlightController(wire,time.monotonic_ns(),flight_command,lambda **row:log('flight',**row),global_origin=simulation.permit['origin'])
+        simulation.heartbeat=FlightHeartbeatGuard(1,1,time.monotonic())
+        flight_requests=[1,32,33,193,245]
     sent={};witness=[];offset=0;last_ping=0;watermark=None;started=time.monotonic()
     last_heartbeat=None
     parameter_names=['GPS_TYPE','GPS_TYPE2','AHRS_EKF_TYPE','EK3_ENABLE','EK3_SRC_OPTIONS','EK3_SRC1_POSXY',
         'EK3_SRC1_VELXY','EK3_SRC1_POSZ','EK3_SRC1_VELZ','EK3_SRC1_YAW','VISO_TYPE','VISO_DELAY_MS',
         'VISO_POS_M_NSE','VISO_VEL_M_NSE','VISO_YAW_M_NSE','SERIAL0_PROTOCOL']
     last_param=0
-    parameter_values={};origin_sent=False;origin_confirmed=False
+    parameter_values={};parameter_times={};flight_param_epoch=None;origin_sent=False;origin_confirmed=False
     if simulation is not None:
         from preflight_ekf3 import EXPECTED
         from analyze_mavros_wire import expected as expected_wire
         parameter_names=list(dict.fromkeys(parameter_names+list(EXPECTED)))
+        if flight is not None:parameter_names.append('ARMING_CHECK')
     system_pending=None;last_system=0
     trace=a.run/'evidence/applied.csv'
     def refresh():
@@ -319,6 +344,13 @@ def main():
                 request=wire.MAVLink_command_long_message(1,1,512,0,2,0,0,0,0,0,0)
                 tcp.sendall(request.pack(enc));enc.seq=(enc.seq+1)%256
                 system_pending=now;last_system=now;stats['system_time_requests']+=1
+            if flight is not None and stats['heartbeat']:
+                if flight_requests and now-last_flight_request>200_000_000:
+                    request=wire.MAVLink_command_long_message(1,1,511,0,flight_requests.pop(0),200000,0,0,0,0,0)
+                    tcp.sendall(request.pack(enc));enc.seq=(enc.seq+1)%256;last_flight_request=now
+                if now-last_home_request>1_000_000_000:
+                    request=wire.MAVLink_command_long_message(1,1,512,0,242,0,0,0,0,0,0)
+                    tcp.sendall(request.pack(enc));enc.seq=(enc.seq+1)%256;last_home_request=now
             try:
                 data=tcp.recv(65535)
                 if not data:raise RuntimeError('FCU stream closed')
@@ -330,13 +362,18 @@ def main():
                 for msg in dec_tcp.parse_buffer(data) or []:
                     kind=msg.get_type()
                     if kind=='BAD_DATA':continue
+                    if flight is not None:
+                        flight.observe(msg,received)
+                        if flight.failure:block(flight.failure)
                     if kind=='HEARTBEAT':
                         # The latest already-applied label is a conservative
                         # lower timestamp witness, not a forged packet stamp.
                         if mapping.anchors:last_heartbeat=mapping.anchors[-1]['target_ns']
                         mark('heartbeat_observed',last_applied_fcu_ns=last_heartbeat)
                         stats['heartbeat']+=1
-                        if msg.base_mode&128:stats['armed_samples']+=1;raise RuntimeError('Unexpected ARMED FCU')
+                        if msg.base_mode&128:
+                            stats['armed_samples']+=1
+                            if flight is None:raise RuntimeError('Unexpected ARMED FCU')
                     if kind=='TIMESYNC' and msg.tc1>0 and msg.ts1 in sent:
                         log('fcuwitness',kind='TIMESYNC_UART_CONSTRAINT',fcu_ns=msg.tc1,
                             sent_ns=sent.pop(msg.ts1),received_ns=received,used_for_clock_proof=False)
@@ -349,6 +386,7 @@ def main():
                         log('params',message=msg.to_dict())
                         name=msg.param_id.decode() if isinstance(msg.param_id,bytes) else msg.param_id
                         parameter_values[name.rstrip('\0')]=msg.param_value
+                        parameter_times[name.rstrip('\0')]=received
                     if simulation is not None and kind=='GPS_GLOBAL_ORIGIN':
                         origin_confirmed=[msg.latitude,msg.longitude,msg.altitude]==simulation.permit['origin']
                         if not origin_confirmed:block('FCU origin readback mismatch')
@@ -419,8 +457,27 @@ def main():
                             ex['valid_seen'].add(kind)
                             if len(ex['valid_seen'])==2:
                                 with stage('diagnostic_ros_publish',usec=usec):converted.publish(ex['diagnostic'])
-            drain()
-            if simulation is not None and simulation.failure:raise RuntimeError(simulation.failure)
+                                if flight is not None:flight.last_pair=time.monotonic_ns()
+            if flight is None or not simulation.failure:drain()
+            if flight is not None:
+                now=time.monotonic_ns()
+                if not current_fusion_ready:
+                    ready_file=a.run/'artifacts/current_fusion_ready.json'
+                    if ready_file.exists():
+                        if not mapping.verified or not mapping.anchors:raise ValueError('Current fusion witness requires verified clock anchors')
+                        current_fusion_ready=verify_current_attestation(read_json(ready_file),simulation.permit,now,mapping.anchors[-1]['target_ns'])
+                        log('flight',event='current_DataFlash_fusion_witness_verified')
+                vision_valid=(not initial_allowed and not simulation.failure and not gate.durable.state['blocked']
+                    and flight.last_pair is not None and 0<=now-flight.last_pair<=500_000_000 and gate.watchdog(now))
+                if simulation.failure:flight.emergency(simulation.failure,now)
+                parameter_fresh=all(parameter_times.get(k,-1)>=flight.since for k in (*EXPECTED,'ARMING_CHECK','SERIAL0_PROTOCOL'))
+                flight.tick(now,parameter_values,origin_confirmed,vision_valid and current_fusion_ready,parameters_fresh=parameter_fresh)
+                if flight.state=='GUIDED' and flight_param_epoch!=flight.since:
+                    parameter_names=list(dict.fromkeys([*EXPECTED,'ARMING_CHECK','SERIAL0_PROTOCOL']))
+                    flight_param_epoch=flight.since
+                if flight.failure:block(flight.failure)  # LAND continues; vision stays latched closed.
+                if flight.done:running[0]=False
+            elif simulation is not None and simulation.failure:raise RuntimeError(simulation.failure)
             if not initial_allowed and not gate.durable.state['blocked']:
                 if not heartbeat_fresh(last_heartbeat,mapping.anchors[-1]['target_ns']):block('FCU heartbeat missing/stale')
                 elif not poses.get_subscription_count() or not speeds.get_subscription_count():block('MAVROS disconnected')
@@ -435,6 +492,7 @@ def main():
                 elif not gate.watchdog(time.monotonic_ns()):egress.block()
     except BaseException as exc:
         if simulation is not None:simulation.failure=str(exc)
+        if flight is not None:flight.emergency('Transport failure: '+str(exc),time.monotonic_ns())
         raise
     finally:
         gate.close();egress.close();tcp.close();udp.close()
@@ -450,14 +508,24 @@ def main():
         with (out/'summary.json').open('x') as f:json.dump(dict(stats,clock_mapping_verified=mapping.verified,
             clock_latched=mapping.broken,gate_reason=gate.reason,decision='HOLD',execution_allowed=False,
             forwarding_enabled=False,scope='Live candidate-wire capture; no FCU vision reception/fusion' if simulation is None else
-                'DISARMED simulation-only vision ingress; fusion requires independent DataFlash evidence'),f,indent=2)
+                ('SIMULATION flight vision ingress; no production authority' if flight is not None else
+                 'DISARMED simulation-only vision ingress; fusion requires independent DataFlash evidence')),f,indent=2)
         if simulation is not None:
             with (out/'simulation_result.json').open('x') as f:
-                json.dump(dict(scope='DISARMED Gazebo/SITL ONLY',vision_socket_writes=simulation.writes,
+                json.dump(dict(scope='SIMULATION flight vision ingress' if flight is not None else 'DISARMED Gazebo/SITL ONLY',vision_socket_writes=simulation.writes,
                     failure=simulation.failure,origin_confirmed=origin_confirmed,
                     complete_forwarded_pairs=sum(len(e['valid_seen'])==2 for e in expected.values()),
                     fcu_reception_and_fusion='NOT VERIFIED: inspect DataFlash VISP/VISV/XKF logs',
                     execution_allowed=False,forwarding_enabled=False),f,indent=2)
+        if flight is not None:
+            with (out/'flight_result.json').open('x') as f:
+                json.dump(dict(status=flight.result if flight.done else 'INCOMPLETE',state=flight.state,
+                    reason=flight.failure,armed_seen=flight.armed_seen,deadline_host_ns=flight.deadline,
+                    landed_disarmed_confirmed=flight.done and flight.state=='DONE',
+                    scope='SIMULATION ONLY; runtime telemetry result, not Phase1 flight GO',
+                    execution_allowed=False,forwarding_enabled=False),f,indent=2)
+    if flight is not None and (not flight.done or flight.result!='PASS'):
+        raise RuntimeError('Simulation flight FAIL/INCOMPLETE; LAND or owned simulator STOP required')
     if simulation is not None and not simulation.writes:
         raise RuntimeError('No live vision forwarded; simulation fusion NOT TESTED')
 

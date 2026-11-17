@@ -193,3 +193,81 @@ stops the exact initially recorded container IDs and preserves logs/state/volume
 If startup failed before IDs were established, cleanup is explicitly INCOMPLETE;
 inspect that run before further action. All Linux runtime/fusion outcomes remain
 NOT TESTED by offline regressions. Phase 1 remains HOLD.
+
+## Separate FIRST simulated flight scenario — OFFLINE IMPLEMENTATION ONLY
+
+[run_simulated_flight.py](run_simulated_flight.py) is a separate opt-in entrypoint;
+the DISARMED launcher and validation scenario are unchanged. Do not execute it
+without separate flight-test approval. Global production flags remain false.
+Only its new owned Gazebo/SITL stack can receive fixed simulation commands.
+MAVROS still reaches FCU through the transport boundary, never directly.
+
+Prerequisites: a successful **closed live-camera DISARMED fusion run of this
+source revision**, matching native build/candidate and pinned VIO export; Linux
+NVIDIA renderer/mount verification; `pymavlink` on the Linux host for BIN decoding.
+Static synthetic fusion, capture-only success or a handwritten PASS report cannot
+substitute. The host re-decodes the raw BIN; transport verifies the approved host
+attestation, evidence hashes and semantic checks. This assumes a trusted host
+operator; it is not cryptographic attestation against a malicious administrator.
+
+Commands from the repository root (not executed on Mac):
+
+```bash
+set -euo pipefail
+: "${P1_BASELINE:?closed DISARMED run under integration/phase1_runs}"
+: "${P1_BUILD:?matching native exports under integration/linux_gpu_runs}"
+: "${P1_VIO:?existing pinned export under integration/linux_gpu_runs}"
+python3 -c 'import pymavlink; print(pymavlink.__version__)'
+python3 -B integration/simulation_flight.py \
+  --run "$P1_BASELINE" --bin "$P1_BASELINE/state/fcu/logs/00000001.BIN"
+flight_args=(--run-id 20261117-flight01 \
+  --runtime-candidate "$P1_BUILD/candidate.json" --vio-dir "$P1_VIO" \
+  --fusion-proof "$P1_BASELINE/evidence/flight_fusion_proof.json" \
+  --origin=-35.363262,149.165237,584)
+# Offline admission only; no Docker/runtime/ARM:
+python3 -B integration/run_simulated_flight.py "${flight_args[@]}"
+# ONLY AFTER SEPARATE EXPLICIT APPROVAL:
+python3 -B integration/run_simulated_flight.py "${flight_args[@]}" \
+  --execute-simulation-flight
+```
+
+Use the actual BIN filename if the completed baseline generated another one.
+Proof output is new `evidence/flight_fusion_proof.json`; old evidence is not
+overwritten. Changed code/evidence/builds require renewed verification, not edits
+to a PASS flag. Missing dependencies/proofs fail before Docker or FCU connection.
+
+Before ARM, the new run also needs a read-only **current-boot DataFlash witness**
+of ExternalNav aiding, source set0 and healthy innovations, at least5s VPE/VSE,
+and a fresh applied-clock comparison. Immutable BIN snapshots/rejected attempts
+are retained. Buffered DataFlash (>500ms FCU age) holds ARM closed; Linux must
+verify whether its logger/decoder meets this bound. Live origin/HOME, all arming
+checks (`ARMING_CHECK=1`), EKF status/innovation ratios, acquisition timestamps,
+covariance and DISARMED heartbeat are independently checked. GPS/EKF/arming
+parameters are re-read after GUIDED and before ARM. Native ARM ACK and armed
+heartbeat are required before TAKEOFF.
+
+Fixed scenario: target1m, hard altitude1.5m, horizontal drift0.4m, hover5s;
+preflight45s, command5s, climb15s, LAND30s within an immutable105s controller
+deadline. Existing 180ms publication, 200ms clock and 500ms availability limits
+remain. A 4m visual-only checker with0.02m tiles extends texture coverage; its
+flight performance is NOT VERIFIED. GT height remains a declared test aid;
+horizontal GT/SITL position is never fed into VIO. FCU position telemetry is
+used only for flight-envelope monitoring.
+The source has a bounded110s capture/export window (within its existing buffers);
+after confirmed LAND/disarmed the host allows that export to finish.
+
+VIO/clock/gate loss closes vision and requests LAND without replay or automatic
+reinitialization. No force-arm, airborne disarm, arming-check override or flight
+termination command is available. LAND requires ACK, LAND heartbeat, on-ground
+state and disarmed confirmation; failure/transport loss leads to owned simulation
+STOP. Parent timeout/crash is not an independently verified recovery guarantee;
+no Stage4/systemd mechanism is selected. Separate approval must cover the Linux
+administrator's exact-ID emergency STOP procedure.
+
+Evidence: `flight-host.jsonl`, `flight-owned.json`, `current-fusion-*.BIN`,
+`flight-transport/{flight.jsonl,flight_result.json,wire.jsonl,fcu_tcp.bin}`,
+`flight-source/`, `flight-observer/` and final FCU BIN, under the new run's
+`evidence/` or `state/fcu/logs/`. Controller telemetry PASS is not Phase1
+completion: inspect post-flight source selection, innovations, VIO accuracy/
+covariance and cleanup. No simulator was armed/flown by this implementation.
+Phase1 remains HOLD / NO GO.

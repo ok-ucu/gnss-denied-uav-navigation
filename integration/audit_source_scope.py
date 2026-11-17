@@ -16,7 +16,7 @@ import sysconfig
 
 ROOT=Path(__file__).resolve().parents[1]
 INTEGRATION=ROOT/'integration'
-EXTERNAL={'numpy','cv2','matplotlib','rclpy','geometry_msgs','mavros_msgs','nav_msgs',
+EXTERNAL={'pymavlink','numpy','cv2','matplotlib','rclpy','geometry_msgs','mavros_msgs','nav_msgs',
           'rosgraph_msgs','sensor_msgs','std_msgs','rosidl_runtime_py','gz',
           'vio_core','vio_frontend','vio_ros_out','vio_ros_source','fastcrc'}
 RUNTIME_ONLY={

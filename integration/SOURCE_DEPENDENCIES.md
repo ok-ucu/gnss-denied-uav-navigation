@@ -18,6 +18,7 @@ procedure grants FCU forwarding or a native firmware admission.
 | Gazebo / ROS | Harmonic / ROS 2 Jazzy, Linux native arm64/amd64 | `gz.transport13`, `gz.msgs10`, `ros_gz_bridge`, rclpy, rosidl_runtime_py and ROS message packages; native amd64 runtime remains unverified here |
 | MAVROS / libmavconn | 2.16.0 | Packaged vision plugins plus separate included `mavros_time_patch/`; original sys_time excluded |
 | Python | Python 3.10+; NumPy, OpenCV; Matplotlib for figures | Existing runtime packages; no install or version upgrade during this audit |
+| Flight-proof decoder (host only) | `pymavlink`, actual DataFlash decoder/version to be recorded on Linux | Required only for `simulation_flight.py` and the separately approved flight host; never opens an FCU endpoint. Not installed or native-verified by offline tests. The transport rechecks the approved host report/hashes without importing this package. |
 | Teammate VIO | `vio_core.py`, `vio_frontend.py`, `vio_ros_source.py`, `vio_ros_out.py` | Pinned at `d33f66008fd7b6de332c96dd324b8ddbd320c194`; the verified `linux_gpu/prepare_vio.py` exports four files to a new ignored dependency directory, separately from teammates' files. `vio/` is untracked here and **not** included or modified by this allowlist |
 | MAVLink codec | v2 ardupilotmega, generated file SHA-256 `011577d7432f6e5e2cb8fe6c15ab4637175ac09ad663bb1e951a09c5d9a872ff` | Explicit single-file protocol-source exception at its current path; not a pymavlink repository or captured data |
 

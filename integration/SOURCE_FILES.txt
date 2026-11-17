@@ -106,9 +106,11 @@ integration/reset_safety.py
 integration/run_latency_matrix.py
 integration/run_navigation_preflight.py
 integration/run_phase1_validation.py
+integration/run_simulated_flight.py
 integration/run_vio_source_probe.sh
 integration/run_vio_stream.py
 integration/runtime_candidate.py
+integration/simulation_flight.py
 integration/simulation_vision.py
 integration/stage_timing.py
 integration/synthetic_heartbeat_e2e.py
@@ -140,6 +142,7 @@ integration/tests/test_permission_deadlines.py
 integration/tests/test_phase1_pipeline.py
 integration/tests/test_reset_safety.py
 integration/tests/test_runtime_candidate.py
+integration/tests/test_simulation_flight.py
 integration/tests/test_simulation_vision.py
 integration/tests/test_source_cleanup.py
 integration/tests/test_source_runtime.py
