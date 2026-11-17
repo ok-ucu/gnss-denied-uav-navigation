@@ -178,7 +178,7 @@ def main():
         call(compose + ['up', '-d', '--no-build', '--pull', 'never'], run / 'evidence/compose-up.txt',60 if args.simulation_disarmed_vision else None)
         if args.simulation_disarmed_vision:
             owned=json.loads(subprocess.check_output(['docker','inspect',*names.values()],text=True,timeout=10))
-            if (len(owned)!=4 or any(r['Config'].get('Labels',{}).get('com.docker.compose.project')!=network
+            if (len(owned)!=4 or any(r['Config'].get('Labels',{}).get('com.docker.compose.project')!=('gnss-phase1-integrated-' + args.run_id)
                     or not re.fullmatch('[0-9a-f]{64}',r['Id']) for r in owned)):
                 owned=None
                 raise ValueError('Cannot establish owned simulation container IDs')

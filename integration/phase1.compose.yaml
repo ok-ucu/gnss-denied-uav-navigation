@@ -22,7 +22,7 @@ services:
       - ${PHASE1_RUN_ROOT:?set PHASE1_RUN_ROOT}:/run/integration
       - ${VIO_ROOT:?set VIO_ROOT}:/opt/vio:ro
     entrypoint: bash
-    command: ['-lc','source /opt/ros/jazzy/setup.bash; exec gz sim -s -r --headless-rendering -v 3 /run/integration/models/world.sdf']
+    command: ['-lc','source /opt/ros/jazzy/setup.bash; export LD_PRELOAD=/opt/phase1/native_parts_render.so; export CAMERA_TRACE_PREFIX=/tmp/phase1_camera_boundary; exec gz sim -s -r --headless-rendering -v 3 /run/integration/models/world.sdf']
   fcu:
     image: ${P1_FCU_IMAGE:-sha256:f5dffdb9f79ed8a7ff58aa7e6f6dfcbe2ebd2cead9fe7b20daea8d953b491540}
     container_name: gnss-p1-fcu-${P1_RUN_ID:?set P1_RUN_ID}
@@ -46,7 +46,7 @@ services:
     # Two CPU leave headroom for the frame consumer and sensor executors.
     # Keep the 10ms period and all freshness/availability limits unchanged.
     cpu_period: 10000
-    cpu_quota: 20000
+    cpu_quota: 40000
     mem_limit: 1g
     environment:
       <<: *ros_env
@@ -68,7 +68,7 @@ services:
     # Measured .5 CPU caused repeated quota blackouts on the deadline path.
     # One CPU reduced throttling; it is not a worst-case latency guarantee.
     cpu_period: 10000
-    cpu_quota: 10000
+    cpu_quota: 20000
     mem_limit: 768m
     environment:
       <<: *ros_env

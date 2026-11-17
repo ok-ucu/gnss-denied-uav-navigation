@@ -75,8 +75,9 @@ def ros_imu_clock_worker(output, stop, fault, produced, session, imu_topic, prof
             executor.spin_once(timeout_sec=.002)
             now = time.monotonic()
             size = sum(map(len, pending.values()))
-            # 3ms is a flush target, NOT a guaranteed delivery bound.
-            if size and (now-sent >= .003 or size >= MAX_BATCH_ROWS):
+            # 10ms is a flush target, NOT a guaranteed delivery bound.
+            # Batch all acquired samples without dropping or replacing timestamps.
+            if size and (now-sent >= .010 or size >= MAX_BATCH_ROWS):
                 packet = dict(session=session, sequence=sequence, sent_monotonic_s=now, **pending)
                 if not put_batch(output, fault, produced, packet):
                     break

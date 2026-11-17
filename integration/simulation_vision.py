@@ -54,7 +54,7 @@ def inspect_environment(records, network, run, candidate, processes):
     for kind, name in names.items():
         row = by_name[name]; h = row['HostConfig']
         if (not re.fullmatch('[0-9a-f]{64}', row['Id']) or not row['State']['Running'] or
-                row['Config'].get('Labels', {}).get('com.docker.compose.project') != project or
+                row['Config'].get('Labels', {}).get('com.docker.compose.project') != 'gnss-phase1-integrated-'+run_id or
                 row['Image'] != candidate['images'][kind if kind != 'vio' else 'physics'] or
                 h.get('Privileged') or h.get('CapAdd') or h.get('PidMode') or h.get('Devices') or
                 h['RestartPolicy']['Name'] != 'no' or h.get('PortBindings') or
@@ -86,8 +86,11 @@ def inspect_environment(records, network, run, candidate, processes):
     if any(p['netns'] != ns or p['boot_id'] != boot for p in processes.values()):
         raise ValueError('Kernel namespace/boot mismatch')
     physics_cmd=processes['physics']['cmdline']
+    if len(physics_cmd) == 1:
+        import shlex
+        physics_cmd = shlex.split(physics_cmd[0])
     if not all(v in physics_cmd for v in ('sim','-s','-r','--headless-rendering','/run/integration/models/world.sdf')):
-        raise ValueError('Physics process is not the owned headless Gazebo world')
+        raise ValueError('Physics process is not the owned headless Gazebo world; PID1 cmdline='+repr(physics_cmd))
     fcu = processes['fcu']
     cmd = fcu['cmdline']
     if (fcu['exe_sha256'] != candidate['firmware_sha256'] or

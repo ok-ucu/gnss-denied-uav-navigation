@@ -195,7 +195,7 @@ class SimulationVisionTests(unittest.TestCase):
             if k=='physics':processes[k]['cmdline']=['gz','sim','-s','-r','--headless-rendering','/run/integration/models/world.sdf']
             rows.append(dict(Name='/'+name,Id=self.permit['containers'][k],
                 Image=self.build['images'][k if k!='vio' else 'physics'],State=dict(Running=True,StartedAt='synthetic'),
-                Config=dict(Hostname=self.process['hostname'],Labels={'com.docker.compose.project':project}),
+                Config=dict(Hostname=self.process['hostname'],Labels={'com.docker.compose.project':'gnss-phase1-integrated-'+self.identity['run_id']}),
                 HostConfig=dict(Privileged=False,CapAdd=None,PidMode='',Devices=[],DeviceRequests=[],
                     RestartPolicy=dict(Name='no'),PortBindings={},NetworkMode=project if k=='physics' else 'container:'+self.permit['containers']['physics']),
                 NetworkSettings=dict(Ports={},Networks={project:{}}),
