@@ -17,7 +17,11 @@ for measured and replayed columns):
                            uncertainty - slowest recorded transport pair): the
                            source blocks them as stale or the transport expires
                            them; either breaks continuity
-  max gap                  largest interval between frames under that limit
+  over source limit        processed frames whose end-of-processing age exceeds
+                           the contract source publication limit (157 ms); the
+                           check runs 2.5-13.5 ms earlier, so this over-counts
+                           the frames the source gate would block
+  max gap                  largest interval between frames under the conversion limit
 
 All metrics cover every processed frame. Measured conversion age exists only
 for frames that actually reached the transport; replayed conversion age is
@@ -40,6 +44,7 @@ from pathlib import Path
 import statistics
 
 from vio_imu_preintegration import TICK_CHUNK, STAMP_EPSILON_S
+from vio_latency_contract import SOURCE_PUBLICATION_MAX_AGE_S
 
 LOOP_SLEEP_S = .002
 IMU_PERIOD_S = .001
@@ -132,11 +137,12 @@ def measured(data):
 POLICIES = ('frame', 'idle', 'idle+admit')
 
 
-def replay(data, policy, period=.1, publication_max_age=.18):
+def replay(data, policy, period=.1, publication_max_age=None):
     """Replay recorded costs through the capture loop under a policy."""
     if policy not in POLICIES:
         raise ValueError('policy must be one of %s' % (POLICIES,))
     from vio_admission import Admission
+    publication_max_age = SOURCE_PUBLICATION_MAX_AGE_S if publication_max_age is None else publication_max_age
     admission = Admission(publication_max_age) if policy == 'idle+admit' else None
     clock, recorded = data['clock'], data['stream']
     costs = []
@@ -240,6 +246,7 @@ def report(run):
             table[name][scope] = dict(publish=summarize(sel, 'publish_age'), slot_wait=summarize(sel, 'slot_wait'),
                                       conversion=summarize(sel, 'conversion_age'),
                                       over_limit=sum(r['publish_age'] > limit for r in sel),
+                                      over_source_limit=sum(r['publish_age'] > SOURCE_PUBLICATION_MAX_AGE_S for r in sel),
                                       max_gap_ms=round(max((b-a for a, b in zip(usable, usable[1:])), default=0)*1e3, 1))
     result['table'] = table
     pick = lambda rows: next((r for r in rows if abs(r['t']-37.9) < 1e-6), None)

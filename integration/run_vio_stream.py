@@ -23,8 +23,9 @@ from vio_imu_preintegration import (new_pending, frame_step, idle_step, observe_
                                     ImuGapError, PreintegrationOverrun)
 
 
-# Source publication age gate (simulation seconds); unchanged value, one name.
-PUBLICATION_MAX_AGE_S = .18
+# Source publication age gate (simulation seconds), derived from the transport's
+# unchanged limits so a published sample can always be paired (vio_latency_contract).
+from vio_latency_contract import SOURCE_PUBLICATION_MAX_AGE_S as PUBLICATION_MAX_AGE_S, describe as latency_contract
 
 
 def recovery_deadline(stamp):
@@ -140,8 +141,9 @@ def main():
                   min_odom_subscribers=a.min_odom_subscribers,min_epoch_subscribers=a.min_epoch_subscribers,
                   horizontal_gt_input=False, external_nav=False, fx=205.4696,
                   gate='3 frames + 250ms, <=200ms sim image age, 500ms wall watchdog',
-                  publication_max_age_sim_s=PUBLICATION_MAX_AGE_S, observer_max_age_sim_s=.2,
-                  delivery_budget_note='20ms simulation-age reserve at publication, not a guaranteed DDS deadline',
+                  publication_max_age_sim_s=PUBLICATION_MAX_AGE_S, latency_contract=latency_contract(),
+                  observer_max_age_sim_s=.2,
+                  delivery_budget_note='Publication age leaves the transport its 20 ms mapping uncertainty plus measured delivery and pairing reserves (vio_latency_contract); not a guaranteed DDS deadline',
                   angular_covariance_policy='Measured aligned IMU angular velocity FRD, diagonal variance100(rad/s)^2 is conservative uncalibrated compatibility policy, not sensor noise calibration',
                   limitations='GT height, known sensor initial yaw=90deg/Rx(pi); distributed audit is not semantic shadow detection')
     config.update(profile_pid=os.getpid(),frame_thread_native_id=threading.get_native_id())

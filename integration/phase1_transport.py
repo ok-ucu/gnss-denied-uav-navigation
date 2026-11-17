@@ -18,6 +18,7 @@ import socket
 import time
 from stage_timing import activate,sample,stage,mark,FaultFile,AsyncAudit
 from skip_log import SkipLog
+import vio_latency_contract as contract
 import uuid
 
 from physics_clock_mapping import AppliedClockMapping,PATCHED_SHA
@@ -138,6 +139,8 @@ def main():
     # Every odometry sample that is not forwarded names its reason in
     # events.jsonl (event='odometry_skipped'), rate-limited per reason.
     skip_log=SkipLog(lambda row:log('events',**row))
+    # Diagnostics only: names samples that exceed a vio_latency_contract reserve.
+    contract_log=SkipLog(lambda row:log('events',**row),event='latency_contract_exceeded')
     running=[True];clock=[None,None];pending=OrderedDict();tokens={};expected={};last_odom=[None];last_odom_acquisition=[None]
     stats=dict(odom_received=0,mapped_pairs=0,vision_received=0,validated_capture_packets=0,vision_sent_to_fcu=0,
                control_sent_to_fcu=0,heartbeat=0,armed_samples=0,clock_proof_checks=0,system_time_requests=0)
@@ -319,6 +322,9 @@ def main():
                     continue
                 mark('pair_input_age',source_ns=ns,decision_host_ns=now,ros_clock_ns=gate.ros_clock,
                      age_sim_ns=None if gate.ros_clock is None else gate.ros_clock-ns)
+                if gate.ros_clock is not None and gate.ros_clock-ns>round((contract.SOURCE_PUBLICATION_MAX_AGE_S+contract.DELIVERY_RESERVE_S)*1e9):
+                    contract_log('source publication + delivery reserve exceeded at pairing',ns,'transport_pair',
+                                 age_sim_ns=gate.ros_clock-ns,contract=contract.describe())
                 with sample(ns),stage('lifecycle_pair'):
                     pair=gate.pair(msg,token,now,True,PoseWithCovarianceStamped,TwistWithCovarianceStamped)
                 if pair is None:
@@ -330,6 +336,9 @@ def main():
                 wire_expected=None
                 mark('permission_created',source_ns=ns,approved_host_ns=meta['approved_host_ns'],
                      deadline_host_ns=meta['allowed_host_deadline_ns'],remaining_ns=meta['allowed_host_deadline_ns']-time.monotonic_ns())
+                if time.monotonic_ns()-meta['approved_host_ns']>round(contract.PAIR_PROCESSING_RESERVE_S*1e9):
+                    contract_log('pair processing reserve exceeded',ns,'transport_pair',
+                                 pair_processing_ns=time.monotonic_ns()-meta['approved_host_ns'],contract=contract.describe())
                 with sample(ns),stage('egress_approve'):
                     if not egress.approve(meta):raise ValueError('wire permission rejected')
                 if time.monotonic_ns()>meta['allowed_host_deadline_ns']:

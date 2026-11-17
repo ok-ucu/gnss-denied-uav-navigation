@@ -13,10 +13,10 @@ EVENT = 'odometry_skipped'
 
 
 class SkipLog:
-    def __init__(self, emit, interval_s=1.0, clock=time.monotonic):
+    def __init__(self, emit, interval_s=1.0, clock=time.monotonic, event=EVENT):
         if not interval_s > 0:
             raise ValueError('interval must be positive')
-        self.emit, self.interval, self.clock = emit, interval_s, clock
+        self.emit, self.interval, self.clock, self.event = emit, interval_s, clock, event
         self._last = {}       # reason -> monotonic seconds of last emission
         self._pending = {}    # reason -> [suppressed count, first, last acquisition_ns]
         self.total = 0
@@ -33,7 +33,7 @@ class SkipLog:
             return False
         suppressed, first, final = self._pending.pop(reason, [0, None, None])
         self._last[reason] = now
-        self.emit(dict(event=EVENT, stage=stage, reason=reason, acquisition_ns=acquisition_ns,
+        self.emit(dict(event=self.event, stage=stage, reason=reason, acquisition_ns=acquisition_ns,
                        suppressed_since_last=suppressed, suppressed_first_acquisition_ns=first,
                        suppressed_last_acquisition_ns=final, **state))
         return True
@@ -41,7 +41,7 @@ class SkipLog:
     def flush(self, stage):
         """Emit the suppressed counts that have not been reported yet."""
         for reason, (suppressed, first, final) in sorted(self._pending.items()):
-            self.emit(dict(event=EVENT, stage=stage, reason=reason, acquisition_ns=None,
+            self.emit(dict(event=self.event, stage=stage, reason=reason, acquisition_ns=None,
                            suppressed_since_last=suppressed, suppressed_first_acquisition_ns=first,
                            suppressed_last_acquisition_ns=final, final_flush=True))
         self._pending.clear()
