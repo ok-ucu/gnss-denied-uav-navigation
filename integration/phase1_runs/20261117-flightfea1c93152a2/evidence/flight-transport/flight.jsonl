@@ -1,0 +1,13 @@
+{"host_ns": 29635491471177, "event": "current_DataFlash_fusion_witness_verified"}
+{"host_ns": 29635491641140, "event": "simulation_command_sent", "command": 401, "params": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]}
+{"host_ns": 29635491806131, "event": "simulation_command_sent", "command": 179, "params": [1, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]}
+{"host_ns": 29640491323269, "event": "prearm_snapshot", "parameters": {"GPS_TYPE": 0.0, "GPS_TYPE2": 0.0, "AHRS_EKF_TYPE": 3.0, "EK3_ENABLE": 1.0, "EK3_SRC_OPTIONS": 0.0, "EK3_SRC1_POSXY": 6.0, "EK3_SRC1_VELXY": 6.0, "EK3_SRC1_POSZ": 1.0, "EK3_SRC1_VELZ": 0.0, "EK3_SRC1_YAW": 1.0, "VISO_TYPE": 1.0, "VISO_DELAY_MS": 10.0, "VISO_POS_M_NSE": 0.20000000298023224, "VISO_VEL_M_NSE": 0.10000000149011612, "VISO_YAW_M_NSE": 0.20000000298023224, "SERIAL0_PROTOCOL": 2.0, "VISO_SCALE": 1.0, "VISO_ORIENT": 0.0, "VISO_POS_X": 0.0, "VISO_POS_Y": 0.0, "VISO_POS_Z": 0.0, "BARO1_GND_PRESS": 101077.5703125, "BARO2_GND_PRESS": 101079.234375, "ARMING_CHECK": 1.0, "STAT_RUNTIME": 30.0}, "vision_valid": true, "ekf_flags": 831, "velocity_ratio": 0.004515450447797775, "position_ratio": 0.0008254104759544134, "relative_alt_m": -0.016, "home": [-353632620, 1491652370, 584070]}
+{"host_ns": 29640491523302, "event": "simulation_command_sent", "command": 176, "params": [1, 4, 0.0, 0.0, 0.0, 0.0, 0.0]}
+{"host_ns": 29640491323269, "event": "flight_transition", "previous": "PREFLIGHT", "state": "GUIDED"}
+{"host_ns": 29644028406835, "event": "simulation_command_sent", "command": 400, "params": [1, 0, 0.0, 0.0, 0.0, 0.0, 0.0]}
+{"host_ns": 29644028258409, "event": "flight_transition", "previous": "GUIDED", "state": "ARM"}
+{"host_ns": 29645736904231, "event": "simulation_command_sent", "command": 22, "params": [0, 0, 0, 0, 0, 0, 1.0]}
+{"host_ns": 29645736769811, "event": "flight_transition", "previous": "ARM", "state": "CLIMB"}
+{"host_ns": 29650725088288, "event": "simulation_command_sent", "command": 21, "params": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]}
+{"host_ns": 29650724979732, "event": "flight_transition", "previous": "CLIMB", "state": "EMERGENCY_LAND"}
+{"host_ns": 29663449876693, "event": "flight_transition", "previous": "EMERGENCY_LAND", "state": "DONE"}
