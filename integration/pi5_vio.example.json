@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "mode": "physical-cpu-only",
+  "execution_allowed": false,
+  "forwarding_enabled": false,
+  "calibration_verified": false,
+  "calibration_evidence": {"path": null, "sha256": null},
+  "clock_evidence": {"path": null, "sha256": null},
+  "clock_domain": null,
+  "stamp_semantics": null,
+  "clock_uncertainty_ns": null,
+  "topics": {"camera": null, "imu": null, "range": null},
+  "frames": {"camera": null, "imu": null, "range": null},
+  "acceleration": "specific-force-m/s2",
+  "angular_velocity": "rad/s",
+  "attitude": "imu-to-ENU",
+  "R_body_imu": null,
+  "R_body_camera": [[0,-1,0],[1,0,0],[0,0,1]],
+  "camera_lever_frd_m": null,
+  "range_lever_frd_m": null,
+  "range_axis_frd": [0,0,1],
+  "surface": "locally-static-horizontal-plane",
+  "range_sigma_m": null,
+  "max_range_age_s": null,
+  "max_tilt_deg": null,
+  "camera": {
+    "width": null, "height": null,
+    "distortion_model": "plumb_bob", "K": null, "D": null
+  }
+}

@@ -1,0 +1,8 @@
+# UPSTREAM PROPOSAL: expression validated only in separate sys_time_patched overlay.
+# Evidence: integration/timesync_patch_runs/20261108/REPORT.md.
+# Never applied to working MAVROS; full replacement/upstream acceptance not tested.
+--- a/mavros/src/plugins/sys_time.cpp
++++ b/mavros/src/plugins/sys_time.cpp
+@@ -380,1 +380,1 @@
+-      add_timesync_observation((tsync.ts1 + now_ns - tsync.tc1 * 2) / 2, tsync.ts1, tsync.tc1);
++      add_timesync_observation((tsync.ts1 + static_cast<int64_t>(now_ns) - tsync.tc1 * 2) / 2, tsync.ts1, tsync.tc1);

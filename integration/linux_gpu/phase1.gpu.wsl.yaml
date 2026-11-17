@@ -1,0 +1,11 @@
+# Same device/backend contract as teammate's measured WSL2 developer stack.
+# Configuration only; actual renderer and source continuity still need evidence.
+services:
+  physics:
+    devices: ["/dev/dxg:/dev/dxg"]
+    volumes: ["/usr/lib/wsl:/usr/lib/wsl:ro"]
+    environment:
+      LIBGL_ALWAYS_SOFTWARE: '0'
+      LD_LIBRARY_PATH: /usr/lib/wsl/lib
+      GALLIUM_DRIVER: d3d12
+      MESA_D3D12_DEFAULT_ADAPTER_NAME: NVIDIA

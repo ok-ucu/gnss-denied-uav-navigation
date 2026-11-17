@@ -1,0 +1,16 @@
+# Залежності для Person 2 (Камера, Калібрування, Датасет, Gazebo Регресія)
+# Встановлення: pip install -r requirements.txt
+
+# Базові обчислення та обробка зображень
+numpy>=1.22.0
+opencv-python>=4.8.0
+pyyaml>=6.0
+
+# Тестування
+pytest>=7.0.0
+
+# Зв'язок з польотним контролером (MAVLink / ArduPilot)
+pymavlink>=2.4.30
+
+# Конвертація в ROS1 bag для Kalibr (чистий Python, ROS не потрібен)
+rosbags>=0.9.15

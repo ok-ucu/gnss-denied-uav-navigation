@@ -1,0 +1,15 @@
+services:
+  physics:
+    gpus: all
+    environment:
+      LIBGL_ALWAYS_SOFTWARE: '0'
+      NVIDIA_DRIVER_CAPABILITIES: graphics,utility,compute
+      __EGL_VENDOR_LIBRARY_FILENAMES: /usr/share/glvnd/egl_vendor.d/10_nvidia.json
+      __GLX_VENDOR_LIBRARY_NAME: nvidia
+    volumes:
+      - type: bind
+        source: /usr/share/glvnd/egl_vendor.d/10_nvidia.json
+        target: /usr/share/glvnd/egl_vendor.d/10_nvidia.json
+        read_only: true
+        bind:
+          create_host_path: false

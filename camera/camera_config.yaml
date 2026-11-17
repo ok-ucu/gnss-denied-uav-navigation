@@ -1,0 +1,18 @@
+# Конфіг камери для захоплення кадрів (camera/capture.py).
+# Розмір і fps мусять збігатися з тими, на яких робиться калібрування:
+# fx у пікселях залежить від роздільності.
+backend: v4l2            # v4l2 | gstreamer | video | synthetic
+device: /dev/video0      # для v4l2: шлях або номер; для video: шлях до файлу
+width: 640
+height: 480
+fps: 30
+fourcc: MJPG             # MJPG дає більше fps по USB, ніж YUYV
+# Для Jetson CSI-камери: backend: gstreamer і pipeline нижче
+gstreamer_pipeline: >
+  nvarguscamerasrc ! video/x-raw(memory:NVMM),width=640,height=480,framerate=30/1 !
+  nvvidconv ! video/x-raw,format=BGRx ! videoconvert ! video/x-raw,format=BGR ! appsink drop=true max-buffers=1
+# Команди v4l2-ctl: фіксована експозиція прибирає змащення і "дихання" яскравості.
+# Імена параметрів дивись у `v4l2-ctl -d /dev/video0 --list-ctrls`.
+v4l2_ctrls:
+  - auto_exposure=1            # 1 = manual (у більшості UVC-камер)
+  - exposure_time_absolute=80  # одиниці 100 мкс => 8 мс; підібрати під освітлення
