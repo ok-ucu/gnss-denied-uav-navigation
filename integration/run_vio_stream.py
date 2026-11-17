@@ -18,6 +18,13 @@ import contextvars
 from concurrent.futures import ThreadPoolExecutor
 from stage_timing import activate,stage,sample,mark,FaultFile,critical_stage
 from skip_log import SkipLog
+from vio_admission import Admission
+from vio_imu_preintegration import (new_pending, frame_step, idle_step, observe_frame_stamp,
+                                    ImuGapError, PreintegrationOverrun)
+
+
+# Source publication age gate (simulation seconds); unchanged value, one name.
+PUBLICATION_MAX_AGE_S = .18
 
 
 def recovery_deadline(stamp):
@@ -105,6 +112,7 @@ def main():
     # Flight evidence: at real-time factor ~1 (airborne) the 100 ms frame budget
     # was exceeded (median 122 ms), the backlog grew until 'stale at publication'.
     audit_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix='vio-audit')
+    admission = Admission(PUBLICATION_MAX_AGE_S)
     gate = QualityGate()
     ekf = VioEKF()
     frontend = FlowFrontend(205.4696)
@@ -117,7 +125,8 @@ def main():
     state = dict(last_imu=None, filter_t=None, previous=None, previous_t=None, previous_depth=None,
                  imu_index=0, initialized=False, reset_after=None, last_frame_wall=None,
                  last_seen_imu=None, last_imu_wall=None, frame_stamp=None, emitted=0,
-                 accepted=0, rejected=0, gaps=0, recoveries=0)
+                 accepted=0, rejected=0, gaps=0, recoveries=0, camera_period=None,
+                 superseded_since_frame=0, preintegration_wall_s=0., **new_pending())
     publication_health=[None]
     started = time.monotonic()
     fault_events = []
@@ -131,7 +140,7 @@ def main():
                   min_odom_subscribers=a.min_odom_subscribers,min_epoch_subscribers=a.min_epoch_subscribers,
                   horizontal_gt_input=False, external_nav=False, fx=205.4696,
                   gate='3 frames + 250ms, <=200ms sim image age, 500ms wall watchdog',
-                  publication_max_age_sim_s=.18, observer_max_age_sim_s=.2,
+                  publication_max_age_sim_s=PUBLICATION_MAX_AGE_S, observer_max_age_sim_s=.2,
                   delivery_budget_note='20ms simulation-age reserve at publication, not a guaranteed DDS deadline',
                   angular_covariance_policy='Measured aligned IMU angular velocity FRD, diagonal variance100(rad/s)^2 is conservative uncalibrated compatibility policy, not sensor noise calibration',
                   limitations='GT height, known sensor initial yaw=90deg/Rx(pi); distributed audit is not semantic shadow detection')
@@ -235,6 +244,32 @@ def main():
         for key, reason in [('last_frame_wall', 'camera wall watchdog'), ('last_imu_wall', 'IMU wall watchdog')]:
             if state[key] is not None and wall-state[key] > .5:
                 block(reason, state['frame_stamp'], reset=(key == 'last_imu_wall'))
+        preintegrate(buffers)
+
+    def preintegrate(buffers):
+        # Idle-time IMU propagation: takes the per-frame IMU burst off the
+        # acquisition->publish path. Never past the next expected frame, never
+        # while uninitialized/resetting, and never consumes a bad sample (the
+        # frame path keeps every fail-closed check).
+        if fault() == 'imu_loss' or buffers['imu'].dropped:
+            return
+        begin = time.monotonic()
+        try:
+            slot = getattr(buffers['frames'], 'slot', None)
+            newest = None if slot is None else slot.newest_arrived_ns()
+            idle_step(state, buffers['imu'].tail_from, ekf.predict, rotation,
+                      newest_arrived=None if newest is None else newest*1e-9)
+        except ValueError:
+            return  # health/quaternion failures are raised again, fail-closed, on the frame path
+        finally:
+            state['preintegration_wall_s'] += time.monotonic()-begin
+
+    def on_superseded(replaced, frame):
+        # Latest-only slot: the consumer was busy and newer frames replaced these.
+        state['superseded_since_frame'] += len(replaced)
+        for ns in replaced:
+            skip_log('superseded in latest-only camera slot (consumer busy)', ns, 'vio_source',
+                     replaced_by_acquisition_ns=round(frame[1]*1e9), last_processed_t=state['frame_stamp'])
 
     def process_frame(frame, buffers):
         nonlocal ekf, frontend
@@ -250,7 +285,26 @@ def main():
             skip_log('injected camera loss', round(t*1e9), 'vio_source', t=t, fault=injected)
             return
         state['last_frame_wall'] = wall
-        state['frame_stamp'] = t
+        previous_stamp = state['frame_stamp']
+        missing = observe_frame_stamp(state, t)
+        if missing:
+            skip_log('camera frames not received by source', round(t*1e9), 'vio_source',
+                     missing_frames=missing, previous_t=previous_stamp, t=t)
+        # Process the most recent frame when behind (vio_admission): a frame that
+        # cannot be published within the unchanged publication age is skipped,
+        # never two in a row, so the IMU backlog and the next frame get the time.
+        try:
+            clock_start = buffers['clocks'].latest()
+        except ValueError:
+            clock_start = None   # health failure: the frame path below fails closed as before
+        if clock_start is not None and not admission.admit(clock_start['t']-t):
+            reason = 'skipped: predicted to exceed publication age (consumer behind)'
+            skip_log(reason, round(t*1e9), 'vio_source', t=t, age_at_start_s=clock_start['t']-t,
+                     expected_processing_s=admission.expected(), publication_max_age_s=PUBLICATION_MAX_AGE_S)
+            write(dict(t=t, wall=wall, fault=injected, published=False, source_age=source_age,
+                       skip_reason=reason, age_at_start_s=clock_start['t']-t,
+                       expected_processing_s=admission.expected()))
+            return
         row = dict(t=t, wall=wall, fault=injected, published=False,source_age=source_age)
         phase=time.monotonic()
         try:
@@ -293,6 +347,7 @@ def main():
                 if not recovery_ready(imu, t, state['reset_after']):
                     raise ValueError('waiting for continuous IMU recovery')
                 ekf, frontend = VioEKF(), FlowFrontend(205.4696)
+                state.update(new_pending())
                 state.update(last_imu=None, filter_t=None, previous=None, previous_t=None, previous_depth=None, initialized=False,
                              reset_after=None, recoveries=state['recoveries']+1)
                 epoch_start[0]=round(t*1e9)
@@ -304,41 +359,27 @@ def main():
                 state['last_imu'] = imu[state['imu_index']]
                 state['filter_t'] = state['last_imu']['t']
                 state['imu_index'] += 1
+                state.update(new_pending())
             imu_start_index=state['imu_index']
             imu_process_begin=time.monotonic()
-            gyro_samples = []
             imu_begin=time.monotonic()
             imu_cpu_begin=time.thread_time()
-            max_gap = .001
+            preintegrated=state['pending_count']
             with critical_stage('source_imu_processing'):
-                while state['imu_index'] < len(imu) and imu[state['imu_index']]['t'] <= t:
-                    m = imu[state['imu_index']]
-                    last = state['last_imu']
-                    gap = m['t']-last['t']
-                    max_gap = max(max_gap, gap)
-                    if not 0 < gap <= .02 or not np.isfinite(m['f']+m['gyro']).all():
-                        block('IMU gap/reset/nonfinite', t, reset=True)
-                        raise ValueError('IMU gap/reset/nonfinite')
-                    dt = m['t']-state['filter_t']
-                    if dt > 0:
-                        ekf.predict(np.asarray(last['f']), rotation(last['q']), dt)
-                        gyro_samples.append((dt, np.asarray(last['gyro'])))
-                    state.update(last_imu=m, filter_t=m['t'], imu_index=state['imu_index']+1)
-                last = state['last_imu']
-                imu_age = t-last['t']
-                if not 0 <= imu_age <= .005:
-                    raise ValueError('IMU watermark/alignment')
-                r = rotation(last['q'])  # Verified spawn ENU yaw90 + sensor Rx(pi) -> NED identity.
-                dt = t-state['filter_t']
-                if dt > 0:
-                    ekf.predict(np.asarray(last['f']), r, dt)
-                    gyro_samples.append((dt, np.asarray(last['gyro'])))
-                state['filter_t'] = t
+                try:
+                    # r: verified spawn ENU yaw90 + sensor Rx(pi) -> NED identity.
+                    gyro_samples, max_gap, last, r, imu_age = frame_step(state, imu, t, ekf.predict, rotation)
+                except (ImuGapError, PreintegrationOverrun) as exc:
+                    block(str(exc), t, reset=True)  # new estimator epoch, as before for gaps
+                    raise ValueError(str(exc))
                 row['imu_processing_wall_s']=time.monotonic()-imu_begin
                 row['imu_processing_thread_cpu_s']=time.thread_time()-imu_cpu_begin
+                row['imu_preintegrated']=preintegrated
+                row['imu_preintegration_wall_s']=state['preintegration_wall_s']
+                state['preintegration_wall_s']=0.
             if a.profile:
                 processed=imu[imu_start_index:state['imu_index']]
-                row['imu_batch']=dict(count=len(processed),pending=len(imu)-state['imu_index'],
+                row['imu_batch']=dict(count=len(processed),preintegrated=preintegrated,pending=len(imu)-state['imu_index'],
                     max_receipt_wait_s=max((imu_process_begin-v['arrival_monotonic_s'] for v in processed),default=None))
             gyro = sum(dt*g for dt, g in gyro_samples)/sum(dt for dt, g in gyro_samples) if gyro_samples else np.asarray(last['gyro'])
             lever = np.asarray(gimbal['p'])+rg@np.asarray(pitch['p'])
@@ -434,7 +475,7 @@ def main():
             if ready:
                 current_clock = buffers['clocks'].latest()
                 current_wall = time.monotonic()
-                row['publication_clock_check']=clock_status(t,current_clock,current_wall,limit=.18)
+                row['publication_clock_check']=clock_status(t,current_clock,current_wall,limit=PUBLICATION_MAX_AGE_S)
                 odom_matches=output_node.odom_publisher.get_subscription_count()
                 epoch_matches=epoch_pub.get_subscription_count()
                 row.update(odom_subscribers=odom_matches,epoch_subscribers=epoch_matches)
@@ -457,6 +498,11 @@ def main():
             row['error'] = str(exc)
         row.setdefault('processing_s',time.monotonic()-wall)
         row['processing_thread_cpu_s']=time.thread_time()-frame_cpu
+        if clock_start is not None:
+            try:
+                admission.processed(buffers['clocks'].latest()['t']-clock_start['t'])
+            except ValueError:
+                pass
         if not row['published']:
             # Every unpublished frame names its reason in stream.jsonl; the
             # rate-limited skip log summarises them without flooding.
@@ -478,14 +524,14 @@ def main():
     camera = '/world/iris_runway/model/iris_with_gimbal/model/gimbal/link/pitch_link/sensor/camera/image'
     imu_topic = '/world/iris_runway/model/iris_with_gimbal/model/iris_with_standoffs/link/imu_link/sensor/imu_sensor/imu'
     try:
-        data = capture(camera, imu_topic, a.duration, a.output_dir, handle, tick,
+        data = capture(camera, imu_topic, a.duration, a.output_dir, handle, tick, superseded_handler=on_superseded,
                        profile=a.profile,async_diagnostics=a.async_diagnostics,reliable_camera=a.reliable_camera,
                        isolated_imu=a.isolated_imu,probe_owned_bridge=a.probe_owned_bridge)
         for key in ('imu', 'native_imu', 'poses', 'clocks'):
             with (a.output_dir/(key+'.jsonl')).open('x') as f:
                 for row in data[key]:
                     f.write(json.dumps(row)+'\n')
-        (a.output_dir/'capture_meta.json').write_text(json.dumps(dict(qos=data['qos'], overflows=data['buffer_overflows'],camera_profile=data['camera_profile'],isolated_imu=data.get('isolated_imu')), indent=2)+'\n')
+        (a.output_dir/'capture_meta.json').write_text(json.dumps(dict(qos=data['qos'], overflows=data['buffer_overflows'],camera_slot=data['camera_slot'],camera_profile=data['camera_profile'],isolated_imu=data.get('isolated_imu')), indent=2)+'\n')
     finally:
         # capture owns shutdown; destroy publisher node before process exits.
         audit_pool.shutdown(wait=True)

@@ -39,6 +39,19 @@ class BoundedRecords:
         with self.lock:
             return self.items[-1] if self.items else None
 
+    def tail_from(self, index, limit=None):
+        """Items at buffer index >= index, without copying the whole buffer.
+
+        Same indices as snapshot() while nothing has been dropped (callers
+        check .dropped, as the frame path does). Cost is O(new items), so the
+        between-frame IMU pre-integration can call it every loop iteration.
+        """
+        if self.check_health is not None:
+            self.check_health()
+        with self.lock:
+            n = len(self.items) if limit is None else min(len(self.items), max(0, index)+limit)
+            return [self.items[i] for i in range(max(0, index), n)]
+
 
 def recovery_ready(samples, now, not_before, stable_span=.25, max_gap=.02):
     import math
@@ -80,7 +93,7 @@ def stop_sensor_bridge(bridge, probe_owned=False):
 
 def capture(camera, imu_topic, duration, output_dir, frame_handler=None, tick_handler=None,
             profile=False, async_diagnostics=False, reliable_camera=False, isolated_imu=False,
-            probe_owned_bridge=False):
+            probe_owned_bridge=False, superseded_handler=None):
     import cv2
     import rclpy
     from rclpy.executors import SingleThreadedExecutor
@@ -116,6 +129,10 @@ def capture(camera, imu_topic, duration, output_dir, frame_handler=None, tick_ha
                               '--ros-args','-r','__node:=vio_sensor_bridge','-p','config_file:='+str(bridge_config)],
                               bridge_log,probe_owned=probe_owned_bridge)
     source=None; receiver=None; executor=None; thread=None; isolated=None
+    from vio_frame_slot import SlotAccounting
+    slot=SlotAccounting()
+    # Frame handlers may read which frame is waiting (IMU pre-integration bound).
+    buffers['frames'].slot=slot
     load_records=[]; next_load=0.; endpoints=[];camera_endpoints=[];clock_endpoints=[];clock_graph=[]
     buffers['clocks'].publishers=[]
     native=Node()
@@ -222,7 +239,15 @@ def capture(camera, imu_topic, duration, output_dir, frame_handler=None, tick_ha
     native.subscribe(Pose_V,'/world/iris_runway/dynamic_pose/info',pose_cb)
     native.subscribe(IMU,imu_topic,native_cb)
     try:
-        source=(ReliableSource if reliable_camera else MeasuredSource if profile else RosFrameSource)(camera,node_name='vio_camera_capture',use_sim_time=True)
+        base=(ReliableSource if reliable_camera else MeasuredSource if profile else RosFrameSource)
+        class AccountedSource(base):
+            # Latest-only slot policy unchanged; only record which stamps entered it.
+            def _cb(self, msg):
+                before=self.n_frames
+                super()._cb(msg)
+                if self.n_frames!=before:
+                    slot.arrived(msg.header.stamp.sec*10**9+msg.header.stamp.nanosec)
+        source=AccountedSource(camera,node_name='vio_camera_capture',use_sim_time=True)
         receiver=rclpy.create_node('vio_dedicated_imu_receiver')
         qos=QoSProfile(depth=4096,reliability=ReliabilityPolicy.RELIABLE,
                        durability=DurabilityPolicy.VOLATILE)
@@ -250,6 +275,9 @@ def capture(camera, imu_topic, duration, output_dir, frame_handler=None, tick_ha
                 if frame is not None:poll_trace['source_ns']=round(frame[1]*1e9)
             if frame is not None:
                 buffers['frames'].append(frame)
+                replaced=slot.consumed(round(frame[1]*1e9))
+                if replaced and superseded_handler is not None:
+                    superseded_handler(replaced, frame)
                 if frame_handler is not None:
                     frame_handler(frame, buffers)
             if tick_handler is not None:
@@ -312,6 +340,8 @@ def capture(camera, imu_topic, duration, output_dir, frame_handler=None, tick_ha
     result['buffer_overflows']={name:buffer.dropped for name,buffer in buffers.items()}
     result['qos']={'depth':4096,'reliability':'RELIABLE','publisher_endpoints':endpoints,'imu_topic':dedicated_topic,'publisher_queue':4096,'subscriber_queue':4096,'executor':'dedicated IMU+clock, separate from image conversion'}
     result['qos']['isolated_imu_process']=isolated_imu
+    result['camera_slot']=dict(policy='latest-only (older frames superseded)',superseded=slot.superseded,
+                               accounting_overflowed=slot.overflowed)
     result['qos']['clock_publishers']=clock_graph
     result['isolated_imu']=None if isolated is None else dict(
         worker_pid=isolated.process.pid,batches=isolated.sequence,rows=isolated.row_counts,
