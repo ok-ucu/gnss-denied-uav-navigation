@@ -177,7 +177,9 @@ class RecordedClimbFailure(unittest.TestCase):
         # 1. admission skip, 2. the next frame was paired across the skipped one
         self.assertEqual(reasons[0], (41.3, 'skipped: predicted to exceed publication age (consumer behind)'))
         failed = before[1]
+        # Recorded label predates the gate reason-order fix; audit_reason shows the real cause.
         self.assertEqual((round(failed['t'], 1), failed['reason']), (41.4, 'EKF not ready'))
+        self.assertEqual(failed['audit_reason'], 'ambiguous spatial support/flow')
         self.assertLess(failed['scale_compensation'], .7)         # >40 % height change across 0.2 s
         self.assertLess(failed['inliers'], 50)
         self.assertNotEqual(failed['audit_reason'], 'agreement')

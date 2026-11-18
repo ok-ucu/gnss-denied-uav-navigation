@@ -71,9 +71,14 @@ class QualityGate:
                   (0 < max_imu_gap <= .02, 'IMU gap'),
                   (frame_gap > 0 and fresh(frame_gap, .3), 'camera gap'),
                   (inliers >= 15, 'inliers'), (contrast >= 8, 'contrast'),
-                  (state_finite, 'nonfinite state'), (ekf_ok, 'EKF not ready'),
-                  (covariance_ok(covariance, 9), 'covariance'),
-                  (audit_ok, 'distributed flow disagreement/unavailable')]
+                  (state_finite, 'nonfinite state'),
+                  # Audit before EKF: the caller fuses flow only after the audit
+                  # passes, so ekf_ok is False whenever the audit fails. Checking
+                  # EKF first labelled every audit rejection 'EKF not ready'.
+                  # Order changes only the reason; every check still blocks.
+                  (audit_ok, 'distributed flow disagreement/unavailable'),
+                  (ekf_ok, 'EKF not ready'),
+                  (covariance_ok(covariance, 9), 'covariance')]
         for ok, reason in checks:
             if not ok:
                 return self.block(reason, t, wall)
