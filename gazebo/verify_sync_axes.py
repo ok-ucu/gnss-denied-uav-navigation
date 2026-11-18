@@ -51,14 +51,19 @@ def test_axis_transformation():
     return err < 1e-6, true_v_body, v_body_est
 
 
-def test_timestamp_compatibility():
+def test_timestamp_compatibility(t_cam=None, t_imu=None):
     """Перевірка часової моделі синхронізації."""
-    # Симуляція часових шкал: 30 Гц кадри та 200 Гц IMU
-    t_cam = np.linspace(0, 1.0, 30)
-    t_imu = np.linspace(0, 1.0, 200)
+    if t_cam is None or t_imu is None:
+        # Симуляція часових шкал: 30 Гц кадри та 200 Гц IMU
+        t_cam = np.linspace(0, 1.0, 30)
+        t_imu = np.linspace(0, 1.0, 200)
 
-    # Максимальний часовий інтервал між сусідніми кадрами та найближчим IMU
-    max_dt_to_nearest_imu = 0.5 / 200.0  # 2.5 мс
+    if len(t_cam) == 0 or len(t_imu) == 0:
+        return False, float("inf")
+
+    # Реальний розрахунок максимального інтервалу від кожного кадру до найближчого IMU
+    nearest_dt = np.min(np.abs(t_imu[:, None] - t_cam[None, :]), axis=0)
+    max_dt_to_nearest_imu = float(np.max(nearest_dt))
 
     return max_dt_to_nearest_imu < 0.005, max_dt_to_nearest_imu
 

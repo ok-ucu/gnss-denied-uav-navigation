@@ -90,7 +90,6 @@ class MockAutopilotConnection:
                 if name == "RAW_IMU":
                     self.n += 1
                     ph = self.n * 0.02
-                    jitter = self.rng.uniform(0.001, 0.004)
                     return MockMavMsg("RAW_IMU",
                                       time_usec=int(t_ap * 1e6),
                                       xgyro=int(np.sin(ph) * 80),

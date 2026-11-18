@@ -26,6 +26,17 @@ from dataset_reader import Dataset
 
 
 # Fallback реалізація FlowFrontend на випадок автономного запуску без репозиторію mavros
+import sys as _sys
+from pathlib import Path as _Path
+_ROOT = str(_Path(__file__).resolve().parents[1])
+if _ROOT not in _sys.path:
+    _sys.path.insert(0, _ROOT)
+try:
+    from vio.vio_frontend import FlowFrontend as _RealFlowFrontend
+except Exception as _imp_err:
+    _RealFlowFrontend = None
+    print(f'[WARN] Could not import real vio.vio_frontend.FlowFrontend ({_imp_err}); using FallbackFlowFrontend')
+
 class FallbackFlowFrontend:
     def __init__(self, fx, min_inliers=15, min_contrast=8.0, max_corners=200):
         self.fx = fx
@@ -79,7 +90,7 @@ def run_regression_test(dataset_path, camera_params_path=None):
 
     ds = Dataset(dataset_path, camera_params=camera_params_path, undistort=True)
     fx = ds.params["fx"] if ds.params else 461.629
-    frontend = FallbackFlowFrontend(fx=fx)
+    frontend = (_RealFlowFrontend if _RealFlowFrontend is not None else FallbackFlowFrontend)(fx=fx)
 
     total_frames = 0
     valid_frames = 0

@@ -14,3 +14,5 @@ pymavlink>=2.4.30
 
 # Конвертація в ROS1 bag для Kalibr (чистий Python, ROS не потрібен)
 rosbags>=0.9.15
+pyproj
+matplotlib

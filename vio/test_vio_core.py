@@ -48,4 +48,4 @@ def test_quality_drops_when_stale_and_recovers():
     assert m.quality(3.0) == 0.0
     m.push(True, 3.0)
     assert m.quality(3.05) > 0.0
-    assert QualityMonitor.inflate(0.0) == 10.0
+    assert QualityMonitor(max_inflate=10).inflate(0.0) == 10.0

@@ -36,11 +36,11 @@ $PYTHON_BIN gazebo/regression_test.py --dataset recordings/sample_flight
 
 echo ""
 echo "[5/7] Перевірка живої частоти сенсорів Gazebo (30 Гц камера, 200 Гц IMU)..."
-$PYTHON_BIN gazebo/check_gazebo_stream.py --mock --duration 2.0
+$PYTHON_BIN gazebo/check_gazebo_stream.py --mock # [MOCK] --duration 2.0
 
 echo ""
 echo "[6/7] Перевірка текстури поверхні та оптичного потоку (>50 inliers)..."
-$PYTHON_BIN gazebo/verify_optical_flow.py
+$PYTHON_BIN gazebo/verify_optical_flow.py --out-img /tmp/optical_flow_verification.png
 
 echo ""
 echo "[7/7] Перевірка узгодження осей координат та часових міток з Людиною 3..."
