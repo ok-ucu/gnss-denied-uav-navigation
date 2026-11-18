@@ -88,7 +88,7 @@ def main():
         with (run/'artifacts/flight_plan.json').open('x') as f:json.dump(plan,f,allow_nan=False)
         # Integration-owned visual scene only; no sensor/physics/model change.
         command(['docker','exec',names['vio'],'bash','-lc',ros+
-            'python3 -B /opt/integration/vio_ground_fixture.py create --directory /run/integration/artifacts/flight-fixture --size-m 4 --tile-size-m .02'],
+            'python3 -B /opt/integration/vio_ground_fixture.py create --directory /run/integration/artifacts/flight-fixture --size-m 16 --tile-size-m .02 --pattern noise'],
             'flight-fixture.txt',30);fixture=True
         camera='/world/iris_runway/model/iris_with_gimbal/model/gimbal/link/pitch_link/sensor/camera/image'
         start('flight-camera','vio',ros+'exec ros2 run ros_gz_bridge parameter_bridge '+camera+'@sensor_msgs/msg/Image[gz.msgs.Image')
