@@ -1,0 +1,14 @@
+- ros_topic_name: /integration/vio_imu
+  gz_topic_name: /world/iris_runway/model/iris_with_gimbal/model/iris_with_standoffs/link/imu_link/sensor/imu_sensor/imu
+  ros_type_name: sensor_msgs/msg/Imu
+  gz_type_name: gz.msgs.IMU
+  direction: GZ_TO_ROS
+  publisher_queue: 4096
+  subscriber_queue: 4096
+- ros_topic_name: /clock
+  gz_topic_name: /clock
+  ros_type_name: rosgraph_msgs/msg/Clock
+  gz_type_name: gz.msgs.Clock
+  direction: GZ_TO_ROS
+  publisher_queue: 4096
+  subscriber_queue: 4096
