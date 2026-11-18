@@ -22,7 +22,11 @@ class SourceRuntimeTests(unittest.TestCase):
             run,plan=runtime.prepare('20261114-unit1','camera:local','fcu:local',
                 str(vendor),123)
             export.assert_called_once_with(run/'artifacts/vio')
-            self.assertEqual((run/'models/world.sdf').read_bytes(),run_camera.verified_file('models/patched_c_world.sdf').read_bytes())
+            template=run_camera.verified_file('models/patched_c_world.sdf')
+            self.assertEqual((run/'models/world.sdf').read_bytes(),template.read_bytes().replace(
+                b'<cast_shadows>true</cast_shadows>',b'<cast_shadows>false</cast_shadows>',1))
+            from launch_phase1 import verify_runtime_world
+            verify_runtime_world(run/'models/world.sdf')
             self.assertEqual((run/'artifacts/camera.parm').read_text(),
                              'SERIAL0_PROTOCOL 2\nLOG_DISARMED 1\nSYSID_THISMAV 1\n')
             override=json.loads((run/'device.override.yaml').read_text())

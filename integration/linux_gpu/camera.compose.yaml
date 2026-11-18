@@ -17,7 +17,7 @@ services:
       - ${GPU_RUN_ROOT:?set new run}:/run/integration
     entrypoint: [bash, -lc]
     command:
-      - 'source /opt/ros/jazzy/setup.bash; export LD_PRELOAD=/opt/phase1/native_parts_render.so; export CAMERA_TRACE_PREFIX=/tmp/phase1_camera_boundary; exec gz sim -s -r --headless-rendering -v 3 /run/integration/models/world.sdf'
+      - 'source /opt/ros/jazzy/setup.bash; export LD_PRELOAD=/opt/phase1/native_parts_render.so; export CAMERA_TRACE_PREFIX=/tmp/phase1_camera_boundary; PYTHONPATH=/opt/integration python3 -B -c "from launch_phase1 import verify_runtime_world; verify_runtime_world(''/run/integration/models/world.sdf'')" && exec gz sim -s -r --headless-rendering -v 3 /run/integration/models/world.sdf'
   fcu:
     image: ${GPU_FCU_IMAGE:?build SITL image}
     container_name: gnss-gpu-fcu-${GPU_RUN_ID}
