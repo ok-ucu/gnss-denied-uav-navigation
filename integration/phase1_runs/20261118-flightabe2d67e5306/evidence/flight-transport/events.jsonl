@@ -1,0 +1,12 @@
+{"host_ns": 6461765623120, "event": "explicit_simulation_origin_requested", "origin": [-353632620, 1491652370, 584000]}
+{"host_ns": 6461780544505, "event": "diagnostic_reference_initialized", "reference": "SIMULATION_DISARMED:3cb7af68-e681-48be-8fb5-4cc93d16af9e", "initial_acquisition_ns": 27200000000, "authorization_scope": "DISARMED Gazebo/SITL vision only", "forwarding_enabled": false}
+{"host_ns": 6485610180868, "event": "odometry_skipped", "stage": "transport_watchdog", "reason": "VIO availability watchdog", "acquisition_ns": 41700000000, "suppressed_since_last": 0, "suppressed_first_acquisition_ns": null, "suppressed_last_acquisition_ns": null, "odom_age_host_ns": 500637484, "ros_clock_ns": 42289000000, "flight_state": "CLIMB"}
+{"host_ns": 6485610955203, "event": "latched_closed", "reason": "VIO availability watchdog"}
+{"host_ns": 6491709722595, "event": "latched_closed", "reason": "bounded odometry buffer overflow"}
+{"host_ns": 6491709757249, "event": "odometry_skipped", "stage": "transport_queue", "reason": "bounded odometry buffer overflow", "acquisition_ns": 42600000000, "suppressed_since_last": 0, "suppressed_first_acquisition_ns": null, "suppressed_last_acquisition_ns": null, "pending": 32}
+{"host_ns": 6491716379458, "event": "latched_closed", "reason": "VIO availability watchdog"}
+{"host_ns": 6491873752132, "event": "latched_closed", "reason": "bounded odometry buffer overflow"}
+{"host_ns": 6491880403153, "event": "latched_closed", "reason": "VIO availability watchdog"}
+{"host_ns": 6492023276913, "event": "latched_closed", "reason": "bounded odometry buffer overflow"}
+{"host_ns": 6492029888339, "event": "latched_closed", "reason": "VIO availability watchdog"}
+{"host_ns": 6492030059457, "event": "odometry_skipped", "stage": "transport", "reason": "bounded odometry buffer overflow", "acquisition_ns": null, "suppressed_since_last": 2, "suppressed_first_acquisition_ns": 42700000000, "suppressed_last_acquisition_ns": 42800000000, "final_flush": true}

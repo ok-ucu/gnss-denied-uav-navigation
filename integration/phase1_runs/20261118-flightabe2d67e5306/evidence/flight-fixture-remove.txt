@@ -1,0 +1,1 @@
+{"action": "remove", "name": "integration_vio_ground_checker", "request": "name: \"integration_vio_ground_checker\" type: MODEL", "returncode": 0, "response": "data: true\n\n", "stderr": ""}

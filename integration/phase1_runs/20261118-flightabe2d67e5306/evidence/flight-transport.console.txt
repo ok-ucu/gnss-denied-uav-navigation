@@ -1,0 +1,9 @@
+[WARN] [1795008411.926043610] [rcl]: ROS_LOCALHOST_ONLY is deprecated but still honored if it is enabled. Use ROS_AUTOMATIC_DISCOVERY_RANGE and ROS_STATIC_PEERS instead.
+[WARN] [1795008411.926058474] [rcl]: 'localhost_only' is enabled, 'automatic_discovery_range' and 'static_peers' will be ignored.
+Traceback (most recent call last):
+  File "/opt/integration/phase1_transport.py", line 589, in <module>
+    if __name__=='__main__':main()
+                            ^^^^^^
+  File "/opt/integration/phase1_transport.py", line 584, in main
+    raise RuntimeError('Simulation flight FAIL/INCOMPLETE; LAND or owned simulator STOP required')
+RuntimeError: Simulation flight FAIL/INCOMPLETE; LAND or owned simulator STOP required
