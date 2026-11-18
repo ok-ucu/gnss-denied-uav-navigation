@@ -162,6 +162,7 @@ integration/tests/test_stage_latency.py
 integration/tests/test_verified_disarmed.py
 integration/tests/test_vio_backlog.py
 integration/tests/test_vio_flight_motion.py
+integration/tests/test_vio_flow_consistency.py
 integration/tests/test_vio_frame_bridge.py
 integration/tests/test_vio_geometry.py
 integration/tests/test_vio_latency_contract.py
@@ -172,6 +173,7 @@ integration/tests/test_vio_stability.py
 integration/vio_adapter.py
 integration/vio_admission.py
 integration/vio_estimation_inputs.py
+integration/vio_flow_consistency.py
 integration/vio_frame_bridge.py
 integration/vio_frame_slot.py
 integration/vio_geometry.py
