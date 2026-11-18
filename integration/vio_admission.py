@@ -37,3 +37,22 @@ class Admission:
     def processed(self, duration_s):
         if duration_s >= 0:
             self.recent.append(duration_s)
+
+
+def keep_as_reference(state, frontend, gray, t, depth):
+    """A skipped frame still becomes the tracking reference.
+
+    Skipping only the estimation keeps the next image pair one camera period
+    apart. Run 20261117-flightfea1c93152a2: after a skip at 41.3 s the next
+    frame was tracked across 0.2 s during the near-ground climb (predicted
+    scale 0.636), lost tracking (31 inliers, audit failed) and blocked the
+    gate. Storing the image costs nothing. The gyro window restarts here so
+    derotation covers the same interval as the flow; the caller integrates IMU
+    up to t first. Nothing is estimated or published for this frame.
+    Returns False (and changes nothing) while no reference exists yet.
+    """
+    if state.get('previous') is None or frontend.prev is None:
+        return False
+    frontend.prev, frontend.prev_t = gray, t
+    state.update(previous=gray, previous_t=t, previous_depth=depth, pending_gyro=[])
+    return True

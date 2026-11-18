@@ -18,9 +18,10 @@ import contextvars
 from concurrent.futures import ThreadPoolExecutor
 from stage_timing import activate,stage,sample,mark,FaultFile,critical_stage
 from skip_log import SkipLog
-from vio_admission import Admission
-from vio_imu_preintegration import (new_pending, frame_step, idle_step, observe_frame_stamp,
-                                    ImuGapError, PreintegrationOverrun)
+from vio_admission import Admission, keep_as_reference
+import vio_flow_consistency
+from vio_imu_preintegration import (new_pending, frame_step, idle_step, observe_frame_stamp, advance,
+                                    ImuGapError, PreintegrationOverrun, PROPAGATION_STEP_S)
 
 
 # Source publication age gate (simulation seconds), derived from the transport's
@@ -142,6 +143,11 @@ def main():
                   horizontal_gt_input=False, external_nav=False, fx=205.4696,
                   gate='3 frames + 250ms, <=200ms sim image age, 500ms wall watchdog',
                   publication_max_age_sim_s=PUBLICATION_MAX_AGE_S, latency_contract=latency_contract(),
+                  imu_propagation_step_s=PROPAGATION_STEP_S,
+                  flow_consistency=dict(nis_limit=vio_flow_consistency.CHI2_2DOF_999, alias_k_sigma=vio_flow_consistency.K_1DOF_999,
+                                        period_min_peak=vio_flow_consistency.PERIOD_MIN_PEAK,
+                                        period_crop_px=vio_flow_consistency.PERIOD_CROP_PX,
+                                        period_max_offset_px=vio_flow_consistency.PERIOD_MAX_OFFSET_PX),
                   observer_max_age_sim_s=.2,
                   delivery_budget_note='Publication age leaves the transport its 20 ms mapping uncertainty plus measured delivery and pairing reserves (vio_latency_contract); not a guaranteed DDS deadline',
                   angular_covariance_policy='Measured aligned IMU angular velocity FRD, diagonal variance100(rad/s)^2 is conservative uncalibrated compatibility policy, not sensor noise calibration',
@@ -260,11 +266,48 @@ def main():
             slot = getattr(buffers['frames'], 'slot', None)
             newest = None if slot is None else slot.newest_arrived_ns()
             idle_step(state, buffers['imu'].tail_from, ekf.predict, rotation,
-                      newest_arrived=None if newest is None else newest*1e-9)
+                      newest_arrived=None if newest is None else newest*1e-9, step_s=PROPAGATION_STEP_S)
         except ValueError:
             return  # health/quaternion failures are raised again, fail-closed, on the frame path
         finally:
             state['preintegration_wall_s'] += time.monotonic()-begin
+
+    def camera_depth_at(buffers, t):
+        # Same inputs as the frame path (GT height aid, IMU attitude); None if unavailable.
+        try:
+            if state['last_imu'] is None:
+                return None
+            r = rotation(state['last_imu']['q'])
+            causal = next((v for v in reversed(buffers['poses'].snapshot()) if v['t'] <= t), None)
+            if causal is None or t-causal['t'] > .05:
+                return None
+            entries = {v['name']: v for v in causal['poses']}
+            root, gimbal, pitch = entries['iris_with_gimbal'], entries['gimbal'], entries['pitch_link']
+            if calibrated_lever is None:
+                lever = np.asarray(gimbal['p'])+rotation(gimbal['q'])@np.asarray(pitch['p'])
+                camera_height = root['p'][2]-a.ground_z+(rotation(root['q'])@lever)[2]
+            else:
+                _, camera_height = vertical_inputs(root['p'][2], a.ground_z, r, calibrated_lever)
+            return camera_height/max(float(r[2, 2]), .5) if camera_height > .05 else None
+        except (ValueError, KeyError):
+            return None
+
+    def skip_reference(gray, t, buffers, injected):
+        # Skipped frame: no estimate, but it becomes the tracking reference so the
+        # next pair stays one camera period apart (vio_admission.keep_as_reference).
+        if (state['last_imu'] is None or state['reset_after'] is not None or buffers['imu'].dropped
+                or state['filter_t'] is None or state['filter_t'] > t):
+            return False
+        try:
+            _, bad = advance(state, buffers['imu'].tail_from(state['imu_index']), state['imu_index'], t,
+                             ekf.predict, rotation, step_s=PROPAGATION_STEP_S)
+        except ValueError:
+            return False
+        if bad is not None:
+            return False   # the next frame's IMU step fails closed on it, as before
+        if injected in ('low_contrast', 'tracking_loss'):
+            gray = np.zeros_like(gray)
+        return keep_as_reference(state, frontend, gray, t, camera_depth_at(buffers, t))
 
     def on_superseded(replaced, frame):
         # Latest-only slot: the consumer was busy and newer frames replaced these.
@@ -305,7 +348,7 @@ def main():
                      expected_processing_s=admission.expected(), publication_max_age_s=PUBLICATION_MAX_AGE_S)
             write(dict(t=t, wall=wall, fault=injected, published=False, source_age=source_age,
                        skip_reason=reason, age_at_start_s=clock_start['t']-t,
-                       expected_processing_s=admission.expected()))
+                       expected_processing_s=admission.expected(), kept_as_reference=skip_reference(gray, t, buffers, injected)))
             return
         row = dict(t=t, wall=wall, fault=injected, published=False,source_age=source_age)
         phase=time.monotonic()
@@ -370,7 +413,8 @@ def main():
             with critical_stage('source_imu_processing'):
                 try:
                     # r: verified spawn ENU yaw90 + sensor Rx(pi) -> NED identity.
-                    gyro_samples, max_gap, last, r, imu_age = frame_step(state, imu, t, ekf.predict, rotation)
+                    gyro_samples, max_gap, last, r, imu_age = frame_step(state, imu, t, ekf.predict, rotation,
+                                                                         step_s=PROPAGATION_STEP_S)
                 except (ImuGapError, PreintegrationOverrun) as exc:
                     block(str(exc), t, reset=True)  # new estimator epoch, as before for gaps
                     raise ValueError(str(exc))
@@ -427,7 +471,10 @@ def main():
                     begin=time.monotonic()
                     with critical_stage('source_spatial_audit'):
                         measured=measure_distributed_flow(previous, gray, dt, scale)
-                    return measured, time.monotonic()-begin
+                    with critical_stage('source_texture_periods'):
+                        # Image-only, on the audit worker, off the frame thread.
+                        periods=vio_flow_consistency.texture_periods(previous)
+                    return measured, periods, time.monotonic()-begin
                 audit_future = audit_pool.submit(contextvars.copy_context().run, timed_measure,
                                                  previous, gray, t-previous_t, scale)
             flow_begin=time.monotonic()
@@ -438,16 +485,32 @@ def main():
             audit = {'ok': False, 'reason': 'frontend unavailable' if previous is not None else 'no previous comparable frame'}
             accepted = False
             measured = None
+            periods = None
+            consistency = None
+            prior_xy, prior_cov = ekf.x[3:5].copy(), ekf.P[3:5, 3:5].copy()   # IMU-propagated, before fusion
             if audit_future is not None:
                 wait_begin=time.monotonic()
-                measured, row['audit_wall_s'] = audit_future.result()
+                measured, periods, row['audit_wall_s'] = audit_future.result()
                 row['audit_wait_s']=time.monotonic()-wait_begin
             if result is not None:
                 if measured is not None:
                     audit = judge_distributed_flow(measured, camera_height, 205.4696, gyro, r, result.v_xy)
                 velocity = camera_to_body_xy(result.v_xy, r, gyro, lever_frd)
                 row.update(flow_xy=velocity.tolist(), flow_camera_xy=result.v_xy.tolist())
-                if audit['ok']:
+                pair_dt = t-previous_t
+                # Diagnostics (logging only): what the frontend subtracted and measured.
+                row.update(gyro_frd=np.asarray(gyro, float).tolist(), depth_m=float(depth), pair_dt_s=pair_dt,
+                           flow_rot_px_s=(205.4696*np.asarray(gyro, float)[:2]).tolist(),
+                           flow_px_s=vio_flow_consistency.flow_px(result.v_xy, gyro, r, depth, 205.4696).tolist(),
+                           prior_velocity_xy=prior_xy.tolist(), prior_velocity_cov=prior_cov.tolist(),
+                           gt_body_q=list(root['q']))   # GT attitude: LOGGING ONLY
+                if audit['ok'] and periods is not None:
+                    # Same frame as result.v_xy: add the lever term back to the prior.
+                    lever_xy = result.v_xy-velocity
+                    consistency = vio_flow_consistency.check(result.v_xy, result.sigma_v, prior_xy+lever_xy, prior_cov,
+                                                             gyro, r, depth, pair_dt, 205.4696, periods)
+                    row['flow_consistency'] = consistency
+                if audit['ok'] and consistency is not None and consistency['ok']:
                     accepted, nis = ekf.update_velocity_xy(velocity, result.sigma_scale)
                     row.update(nis=float(nis))
                 state['accepted' if accepted else 'rejected'] += 1
@@ -461,7 +524,8 @@ def main():
                                     inliers=result.n_inliers if result is not None else 0,
                                     contrast=contrast, covariance=covariance,
                                     state_finite=bool(np.isfinite(ekf.x).all()),
-                                    audit_ok=audit['ok'], ekf_ok=bool(accepted and ekf_ready(ekf) and state['reset_after'] is None), frame_gap=frame_gap)
+                                    audit_ok=audit['ok'], ekf_ok=bool(accepted and ekf_ready(ekf) and state['reset_after'] is None), frame_gap=frame_gap,
+                                    consistency_ok=consistency is None or consistency['ok'])
             row.update(state=ekf.x.tolist(), covariance=ekf.P.tolist(), audit=audit,
                        contrast=contrast, flow_accepted=bool(accepted), ekf_internal_resets=ekf.n_resets, imu_age=imu_age,
                        source_age=source_age, clock_age=clock['t']-t,
@@ -513,6 +577,7 @@ def main():
             skip_log(row['skip_reason'], round(t*1e9), 'vio_source', t=t, gate_ready=gate.ready,
                      gate_count=gate.count, inliers=row.get('inliers'), frontend_available=row.get('frontend_available'),
                      audit_reason=audit_row.get('reason'), clock_age_s=row.get('clock_age'),
+                     consistency_reason=(row.get('flow_consistency') or {}).get('reason'),
                      publication_age_s=(row.get('publication_clock_check') or {}).get('simulation_age_s'),
                      processing_s=row['processing_s'], scale_compensation=row.get('scale_compensation'),
                      epoch=state['recoveries'])

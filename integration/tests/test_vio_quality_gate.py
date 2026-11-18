@@ -39,6 +39,15 @@ class GateTests(unittest.TestCase):
                 self.setUp()
                 self.ready()
                 self.assertFalse(self.g.assess(1.4, 2, **dict(self.kw, **{key: value})))
+    def test_audit_rejection_is_not_labelled_ekf(self):
+        # run 20261117-flightfea1c93152a2, t=41.4: audit failed, so the flow was
+        # never fused (ekf_ok False too) and the gate reported 'EKF not ready'.
+        self.ready()
+        self.assertFalse(self.g.assess(1.4, 2, **dict(self.kw, audit_ok=False, ekf_ok=False)))
+        self.assertEqual(self.g.reason, 'distributed flow disagreement/unavailable')
+        self.setUp(); self.ready()
+        self.assertFalse(self.g.assess(1.4, 2, **dict(self.kw, ekf_ok=False)))   # audit ok, EKF rejected
+        self.assertEqual(self.g.reason, 'EKF not ready')
     def test_timestamp_reset_requires_readiness(self):
         self.ready()
         self.assertFalse(self.g.assess(.5, 2, **self.kw))
