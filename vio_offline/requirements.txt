@@ -1,0 +1,4 @@
+# versions the 16 Nov results were produced with (Python 3.12)
+numpy==2.5.5
+opencv-python-headless==5.0.0
+matplotlib==3.11.2
