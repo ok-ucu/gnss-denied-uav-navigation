@@ -226,3 +226,33 @@ the parallel audit, so they overstate today's cost.
   watchdog. Making one block survivable without relaxing either needs a faster camera (20 Hz:
   re-ready in 0.3 s), which needs CPU the source does not have today. This is a design decision for
   the team.
+
+## Follow-up: wrong flow velocities in flight (periodic ground texture)
+
+Evidence: `debug_evidence/20261117-flight6f32c08e7aaf/flight-source/stream.jsonl`, airborne
+(h > 0.9 m) fused flow velocities vs Gazebo GT displacement between the two frames.
+
+* Error is a whole ground lattice step, not noise: every frame with error > 1 cm is off by
+  (-2.0, +2.0) cm (once twice that), and only when the true displacement exceeds ~1.45 cm,
+  half a period. Below that the error is < 0.6 cm.
+* The frontend is confident when wrong (sigma_v 0.0012-0.0024 m/s, 70-150 inliers) and the
+  distributed audit agrees, because every feature aliases together. The EKF NIS gate passes it
+  (measurement floor sigma_vis 0.08 m/s > error 0.14 m/s). 14 of 55 airborne flows were fused wrong.
+* Reproduced with the pinned frontend on a tiled synthetic texture: error = exactly one period.
+* Consequence: with a ~2 cm ground period and a 10 Hz camera, flow is ambiguous above
+  ~0.1 m/s (0.05 m/s on a skipped-frame pair), at any height.
+
+Fix (fail-closed, `vio_flow_consistency.py`): before fusion, compare flow with the IMU-propagated
+EKF prior (chi-square 2 dof 99.9 % with the frontend's measured sigma), and when the image has a
+periodic texture (autocorrelation peak), accept flow only if the IMU prediction resolves the alias
+(|p| > 2 * 3.29 sigma and agreement within 3.29 sigma along p). Replay of 6f32: all aliased
+frames rejected, and also all good airborne frames: in this world the IMU (+-1.2 px over 0.1 s)
+cannot resolve a 3.7 px period, so VIO is correctly unavailable in flight until the ground
+texture changes. Diagnostics added to stream.jsonl: gyro_frd, depth_m, pair_dt_s, flow_px_s,
+flow_rot_px_s, prior velocity/covariance, gt_body_q (logging only), flow_consistency.
+
+Gazebo side: replace or rescale the runway ground texture so it has no repeat shorter than the
+largest per-frame displacement (e.g. > 0.5 m for 2 m/s at 10 Hz), or a non-repeating texture.
+Sun casts shadows (direction -0.5 0.1 -0.9): the drone's shadow sits at a fixed image position
+(~0.55 h ground offset) and is large at takeoff; the audit rejects those frames ("ambiguous
+spatial support/flow"), so it costs availability at liftoff, not wrong fusion.

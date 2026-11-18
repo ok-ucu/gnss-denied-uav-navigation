@@ -19,6 +19,7 @@ from concurrent.futures import ThreadPoolExecutor
 from stage_timing import activate,stage,sample,mark,FaultFile,critical_stage
 from skip_log import SkipLog
 from vio_admission import Admission, keep_as_reference
+import vio_flow_consistency
 from vio_imu_preintegration import (new_pending, frame_step, idle_step, observe_frame_stamp, advance,
                                     ImuGapError, PreintegrationOverrun, PROPAGATION_STEP_S)
 
@@ -143,6 +144,10 @@ def main():
                   gate='3 frames + 250ms, <=200ms sim image age, 500ms wall watchdog',
                   publication_max_age_sim_s=PUBLICATION_MAX_AGE_S, latency_contract=latency_contract(),
                   imu_propagation_step_s=PROPAGATION_STEP_S,
+                  flow_consistency=dict(nis_limit=vio_flow_consistency.CHI2_2DOF_999, alias_k_sigma=vio_flow_consistency.K_1DOF_999,
+                                        period_min_peak=vio_flow_consistency.PERIOD_MIN_PEAK,
+                                        period_crop_px=vio_flow_consistency.PERIOD_CROP_PX,
+                                        period_max_offset_px=vio_flow_consistency.PERIOD_MAX_OFFSET_PX),
                   observer_max_age_sim_s=.2,
                   delivery_budget_note='Publication age leaves the transport its 20 ms mapping uncertainty plus measured delivery and pairing reserves (vio_latency_contract); not a guaranteed DDS deadline',
                   angular_covariance_policy='Measured aligned IMU angular velocity FRD, diagonal variance100(rad/s)^2 is conservative uncalibrated compatibility policy, not sensor noise calibration',
@@ -466,7 +471,10 @@ def main():
                     begin=time.monotonic()
                     with critical_stage('source_spatial_audit'):
                         measured=measure_distributed_flow(previous, gray, dt, scale)
-                    return measured, time.monotonic()-begin
+                    with critical_stage('source_texture_periods'):
+                        # Image-only, on the audit worker, off the frame thread.
+                        periods=vio_flow_consistency.texture_periods(previous)
+                    return measured, periods, time.monotonic()-begin
                 audit_future = audit_pool.submit(contextvars.copy_context().run, timed_measure,
                                                  previous, gray, t-previous_t, scale)
             flow_begin=time.monotonic()
@@ -477,16 +485,32 @@ def main():
             audit = {'ok': False, 'reason': 'frontend unavailable' if previous is not None else 'no previous comparable frame'}
             accepted = False
             measured = None
+            periods = None
+            consistency = None
+            prior_xy, prior_cov = ekf.x[3:5].copy(), ekf.P[3:5, 3:5].copy()   # IMU-propagated, before fusion
             if audit_future is not None:
                 wait_begin=time.monotonic()
-                measured, row['audit_wall_s'] = audit_future.result()
+                measured, periods, row['audit_wall_s'] = audit_future.result()
                 row['audit_wait_s']=time.monotonic()-wait_begin
             if result is not None:
                 if measured is not None:
                     audit = judge_distributed_flow(measured, camera_height, 205.4696, gyro, r, result.v_xy)
                 velocity = camera_to_body_xy(result.v_xy, r, gyro, lever_frd)
                 row.update(flow_xy=velocity.tolist(), flow_camera_xy=result.v_xy.tolist())
-                if audit['ok']:
+                pair_dt = t-previous_t
+                # Diagnostics (logging only): what the frontend subtracted and measured.
+                row.update(gyro_frd=np.asarray(gyro, float).tolist(), depth_m=float(depth), pair_dt_s=pair_dt,
+                           flow_rot_px_s=(205.4696*np.asarray(gyro, float)[:2]).tolist(),
+                           flow_px_s=vio_flow_consistency.flow_px(result.v_xy, gyro, r, depth, 205.4696).tolist(),
+                           prior_velocity_xy=prior_xy.tolist(), prior_velocity_cov=prior_cov.tolist(),
+                           gt_body_q=list(root['q']))   # GT attitude: LOGGING ONLY
+                if audit['ok'] and periods is not None:
+                    # Same frame as result.v_xy: add the lever term back to the prior.
+                    lever_xy = result.v_xy-velocity
+                    consistency = vio_flow_consistency.check(result.v_xy, result.sigma_v, prior_xy+lever_xy, prior_cov,
+                                                             gyro, r, depth, pair_dt, 205.4696, periods)
+                    row['flow_consistency'] = consistency
+                if audit['ok'] and consistency is not None and consistency['ok']:
                     accepted, nis = ekf.update_velocity_xy(velocity, result.sigma_scale)
                     row.update(nis=float(nis))
                 state['accepted' if accepted else 'rejected'] += 1
@@ -500,7 +524,8 @@ def main():
                                     inliers=result.n_inliers if result is not None else 0,
                                     contrast=contrast, covariance=covariance,
                                     state_finite=bool(np.isfinite(ekf.x).all()),
-                                    audit_ok=audit['ok'], ekf_ok=bool(accepted and ekf_ready(ekf) and state['reset_after'] is None), frame_gap=frame_gap)
+                                    audit_ok=audit['ok'], ekf_ok=bool(accepted and ekf_ready(ekf) and state['reset_after'] is None), frame_gap=frame_gap,
+                                    consistency_ok=consistency is None or consistency['ok'])
             row.update(state=ekf.x.tolist(), covariance=ekf.P.tolist(), audit=audit,
                        contrast=contrast, flow_accepted=bool(accepted), ekf_internal_resets=ekf.n_resets, imu_age=imu_age,
                        source_age=source_age, clock_age=clock['t']-t,
@@ -552,6 +577,7 @@ def main():
             skip_log(row['skip_reason'], round(t*1e9), 'vio_source', t=t, gate_ready=gate.ready,
                      gate_count=gate.count, inliers=row.get('inliers'), frontend_available=row.get('frontend_available'),
                      audit_reason=audit_row.get('reason'), clock_age_s=row.get('clock_age'),
+                     consistency_reason=(row.get('flow_consistency') or {}).get('reason'),
                      publication_age_s=(row.get('publication_clock_check') or {}).get('simulation_age_s'),
                      processing_s=row['processing_s'], scale_compensation=row.get('scale_compensation'),
                      epoch=state['recoveries'])
