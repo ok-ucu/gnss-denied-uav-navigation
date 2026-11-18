@@ -133,3 +133,96 @@ transport before it latched.
   for the VIO container.
 * Evidence that would settle the remaining questions: the source's `flight-source/stages.jsonl`
   (preemption vs compute) and the VIO container's cgroup `cpu.stat`.
+
+---
+
+# Follow-up: run 20261117-flightfea1c93152a2 (VIO availability watchdog, 5 s into CLIMB)
+
+Evidence: `integration/phase1_runs/20261117-flightfea1c93152a2/evidence/` (commit `127e43a`):
+`flight-source/skips.jsonl`, `flight-transport/{stages,flight}.jsonl`, `flight_result.json`.
+The source's `stream.jsonl` was not committed, so per-frame detail exists only for the frames the
+rate-limited skip log reported (first of each reason per second, with suppressed counts).
+
+## What happened
+
+| Sim time | Evidence | Meaning |
+|---|---|---|
+| 38.5–40.6 s | transport `odom_arrival_age` 33–57 ms every frame; RTF 0.57–0.60 | CLIMB commanded, still on the ground; fresh odometry every frame |
+| 40.7–41.2 s | arrival age 87 → 108 → 124 → 142 → 145 → 148 ms; RTF jumps to 0.99 | liftoff removes ground contact; 100 ms of wall time per frame, processing 86–113 ms: the source falls behind (not a queue: nothing superseded) |
+| 41.3 s | `skipped: predicted to exceed publication age`, age 53 ms + expected 105 ms > 157 ms | admission skip, as designed |
+| 41.4 s | `EKF not ready`, 31 inliers, audit `ambiguous spatial support/flow`, predicted scale 0.636 | the frame was paired with 41.2 s across the skipped one: 0.2 s baseline while the camera height rose ~57 %. Tracking/audit failed, so the flow update was not accepted. Estimator epoch stayed 0: no EKF reset or internal fault |
+| 41.5, 41.7 s | `readiness hysteresis 1/3`, `2/3 (0.200 s)` | recovering |
+| 41.8 s | published, 600 ms (sim) after 41.2 s | 100 ms after the watchdog (`odom_age_ns 500764476`, `gate_blocked false`) |
+
+Answers to the questions asked:
+
+* **Inliers / "EKF not ready".** Loss of tracking, not an EKF fault: "EKF not ready" is the gate's
+  label when the flow velocity was not accepted, and it was not accepted because the spatial audit
+  failed on the 0.2 s pair. Later in EMERGENCY_LAND inliers stayed low (18–74) while frames kept
+  being skipped or blocked, i.e. pairs kept spanning 0.2–0.3 s.
+* **Backlog vs throughput.** Throughput. Nothing queued (one superseded frame in the whole flight);
+  once airborne at RTF 0.99 each frame took 86–113 ms of a 100 ms period, so ages rose by
+  ~15–20 ms per frame until the admission check skipped one.
+* **Why readiness did not return in time.** By construction. At 10 Hz the unchanged
+  3-frame/250 ms readiness needs 4 good frames after a block, so one blocked frame means ≥ 0.5 s of
+  simulation time without output, which is ≥ 500 ms of wall time at RTF ≤ 1 — the watchdog limit.
+  **In flight the system tolerates zero gate blocks.** Neither gate is changed; the blocks must be
+  prevented.
+
+## Fix (thresholds and watchdog unchanged)
+
+1. **IMU propagated in 5 ms blocks** (`vio_imu_preintegration.PROPAGATION_STEP_S`). The flight model
+   feeds the ArduPilot IMU at 1 kHz; the VIO was developed against 200 Hz
+   (`gazebo/worlds/camera_world.sdf`). Each block is one pinned `predict()` with the
+   interval-weighted mean specific force (same body-frame Δv), the rotation held at the block
+   midpoint, and the interval-weighted mean gyro (per-frame gyro mean unchanged). Every raw sample
+   still passes the gap/non-finite checks. Measured: 3.9× less IMU time; after 3 s of 1 rad/s
+   rotation and ±1.5 m/s² manoeuvring, |Δv| 9.4e-6 m/s and |Δp| 1.8e-5 m vs per-sample propagation;
+   covariance within 0.1 %. A ≤ 200 Hz IMU is propagated exactly as before.
+2. **A skipped frame stays the tracking reference** (`vio_admission.keep_as_reference`): the skipped
+   image (and its camera depth for scale compensation) becomes the frontend/audit reference, so the
+   next pair is one period apart; the gyro window restarts with it. Nothing is estimated or
+   published for the skipped frame; IMU gap evidence is kept.
+
+## Replay of recorded costs (not flown)
+
+The failing run cannot be replayed (no `stream.jsonl`); these use the two runs that have one.
+
+| Run / window | Policy | acq→publish p50 / p95 / max ms | frames over 157 ms | skipped | largest fresh gap |
+|---|---|---|---|---|---|
+| 4414cb818f2a, whole flight | before (`frame`) | 49 / 178 / 247 | 15 | 0 | 1.9 s |
+| 4414cb818f2a, whole flight | `idle+admit` (c20de2c/6f9052f) | 35 / 124 / 167 | 2 | 9 | 0.4 s |
+| 4414cb818f2a, whole flight | **`idle+admit+5ms` (this fix)** | 35 / 124 / 155 | **0** | 3 | **0.2 s** |
+| 6f32c08e7aaf, airborne RTF 0.99 | before (`frame`) | 199 / 243 / 302 | 57 | 0 | 3.3 s |
+| 6f32c08e7aaf, airborne RTF 0.99 | `idle+admit` | 130 / 158 / 251 | 4 | 33 | 0.3 s |
+| 6f32c08e7aaf, airborne RTF 0.99 | **`idle+admit+5ms`** | 121 / 138 / 266 | **1** | 11 | 0.4 s |
+
+The remaining 6f32 frame is a single recorded processing spike; those recorded costs also predate
+the parallel audit, so they overstate today's cost.
+
+## What to check on the Gazebo side
+
+1. **Commit the source's `flight-source/stream.jsonl` (and `stages.jsonl`) with every run.** Without
+   it, inliers, contrast, heights and per-stage times are only visible for rate-limited skip rows.
+2. **Real-time factor at liftoff.** Every failing run shows RTF jumping from ~0.6 (ground contact) to
+   ~1.0 at liftoff, which cuts the per-frame budget from ~165 ms to 100 ms in one step. Check
+   `<physics><real_time_factor>` / `max_step_size`, and whether lockstep with ArduPilot is holding
+   the sim back on the ground. Capping RTF (e.g. 0.6–0.7) would make the simulation test the logic
+   with headroom, but it does not prove real-time capability; please tell us if you use it.
+3. **IMU rate.** The VIO consumes the iris `imu_sensor` at 1 kHz. A separate 200 Hz IMU sensor for
+   the VIO topic (keeping 1 kHz for ArduPilot) would be equivalent to fix 1 without the averaging.
+4. **Camera.** Confirm the gimbal camera really publishes at 10 Hz with exact 0.1 s stamps
+   (`ros_camera.jsonl`) and has no motion blur or auto-exposure enabled; check the runway texture
+   under the camera at 0.2–1.0 m (inliers at rest are ~180–200; in hover they were 18–74 here, which
+   the doubled baselines explain only in part).
+5. **Lighting.** The vehicle's own shadow moves with it near the ground; a light directly overhead
+   or shadows disabled for the camera would show whether it affects inliers at liftoff.
+
+## Still open
+
+* Not flown. The replay models CPU scheduling, not image tracking.
+* Zero tolerance for gate blocks in flight is a property of the current readiness (10 Hz,
+  3 frames/250 ms) and watchdog (500 ms) settings. Any genuine tracking glitch will still trip the
+  watchdog. Making one block survivable without relaxing either needs a faster camera (20 Hz:
+  re-ready in 0.3 s), which needs CPU the source does not have today. This is a design decision for
+  the team.

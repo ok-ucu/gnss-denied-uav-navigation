@@ -18,9 +18,9 @@ import contextvars
 from concurrent.futures import ThreadPoolExecutor
 from stage_timing import activate,stage,sample,mark,FaultFile,critical_stage
 from skip_log import SkipLog
-from vio_admission import Admission
-from vio_imu_preintegration import (new_pending, frame_step, idle_step, observe_frame_stamp,
-                                    ImuGapError, PreintegrationOverrun)
+from vio_admission import Admission, keep_as_reference
+from vio_imu_preintegration import (new_pending, frame_step, idle_step, observe_frame_stamp, advance,
+                                    ImuGapError, PreintegrationOverrun, PROPAGATION_STEP_S)
 
 
 # Source publication age gate (simulation seconds), derived from the transport's
@@ -142,6 +142,7 @@ def main():
                   horizontal_gt_input=False, external_nav=False, fx=205.4696,
                   gate='3 frames + 250ms, <=200ms sim image age, 500ms wall watchdog',
                   publication_max_age_sim_s=PUBLICATION_MAX_AGE_S, latency_contract=latency_contract(),
+                  imu_propagation_step_s=PROPAGATION_STEP_S,
                   observer_max_age_sim_s=.2,
                   delivery_budget_note='Publication age leaves the transport its 20 ms mapping uncertainty plus measured delivery and pairing reserves (vio_latency_contract); not a guaranteed DDS deadline',
                   angular_covariance_policy='Measured aligned IMU angular velocity FRD, diagonal variance100(rad/s)^2 is conservative uncalibrated compatibility policy, not sensor noise calibration',
@@ -260,11 +261,48 @@ def main():
             slot = getattr(buffers['frames'], 'slot', None)
             newest = None if slot is None else slot.newest_arrived_ns()
             idle_step(state, buffers['imu'].tail_from, ekf.predict, rotation,
-                      newest_arrived=None if newest is None else newest*1e-9)
+                      newest_arrived=None if newest is None else newest*1e-9, step_s=PROPAGATION_STEP_S)
         except ValueError:
             return  # health/quaternion failures are raised again, fail-closed, on the frame path
         finally:
             state['preintegration_wall_s'] += time.monotonic()-begin
+
+    def camera_depth_at(buffers, t):
+        # Same inputs as the frame path (GT height aid, IMU attitude); None if unavailable.
+        try:
+            if state['last_imu'] is None:
+                return None
+            r = rotation(state['last_imu']['q'])
+            causal = next((v for v in reversed(buffers['poses'].snapshot()) if v['t'] <= t), None)
+            if causal is None or t-causal['t'] > .05:
+                return None
+            entries = {v['name']: v for v in causal['poses']}
+            root, gimbal, pitch = entries['iris_with_gimbal'], entries['gimbal'], entries['pitch_link']
+            if calibrated_lever is None:
+                lever = np.asarray(gimbal['p'])+rotation(gimbal['q'])@np.asarray(pitch['p'])
+                camera_height = root['p'][2]-a.ground_z+(rotation(root['q'])@lever)[2]
+            else:
+                _, camera_height = vertical_inputs(root['p'][2], a.ground_z, r, calibrated_lever)
+            return camera_height/max(float(r[2, 2]), .5) if camera_height > .05 else None
+        except (ValueError, KeyError):
+            return None
+
+    def skip_reference(gray, t, buffers, injected):
+        # Skipped frame: no estimate, but it becomes the tracking reference so the
+        # next pair stays one camera period apart (vio_admission.keep_as_reference).
+        if (state['last_imu'] is None or state['reset_after'] is not None or buffers['imu'].dropped
+                or state['filter_t'] is None or state['filter_t'] > t):
+            return False
+        try:
+            _, bad = advance(state, buffers['imu'].tail_from(state['imu_index']), state['imu_index'], t,
+                             ekf.predict, rotation, step_s=PROPAGATION_STEP_S)
+        except ValueError:
+            return False
+        if bad is not None:
+            return False   # the next frame's IMU step fails closed on it, as before
+        if injected in ('low_contrast', 'tracking_loss'):
+            gray = np.zeros_like(gray)
+        return keep_as_reference(state, frontend, gray, t, camera_depth_at(buffers, t))
 
     def on_superseded(replaced, frame):
         # Latest-only slot: the consumer was busy and newer frames replaced these.
@@ -305,7 +343,7 @@ def main():
                      expected_processing_s=admission.expected(), publication_max_age_s=PUBLICATION_MAX_AGE_S)
             write(dict(t=t, wall=wall, fault=injected, published=False, source_age=source_age,
                        skip_reason=reason, age_at_start_s=clock_start['t']-t,
-                       expected_processing_s=admission.expected()))
+                       expected_processing_s=admission.expected(), kept_as_reference=skip_reference(gray, t, buffers, injected)))
             return
         row = dict(t=t, wall=wall, fault=injected, published=False,source_age=source_age)
         phase=time.monotonic()
@@ -370,7 +408,8 @@ def main():
             with critical_stage('source_imu_processing'):
                 try:
                     # r: verified spawn ENU yaw90 + sensor Rx(pi) -> NED identity.
-                    gyro_samples, max_gap, last, r, imu_age = frame_step(state, imu, t, ekf.predict, rotation)
+                    gyro_samples, max_gap, last, r, imu_age = frame_step(state, imu, t, ekf.predict, rotation,
+                                                                         step_s=PROPAGATION_STEP_S)
                 except (ImuGapError, PreintegrationOverrun) as exc:
                     block(str(exc), t, reset=True)  # new estimator epoch, as before for gaps
                     raise ValueError(str(exc))

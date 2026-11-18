@@ -34,7 +34,8 @@ IMU cost) are run through a model of the capture loop (poll latest frame ->
 process -> tick -> 2 ms sleep). Policy 'frame' integrates IMU on the frame path
 (as recorded); 'idle' integrates it in ticks, TICK_CHUNK samples at a time,
 never past a frame that may still be processed; 'idle+admit' additionally
-applies vio_admission (skip a frame predicted to miss the publication age). The 'frame' replay must reproduce the
+applies vio_admission (skip a frame predicted to miss the publication age);
+'idle+admit+5ms' also propagates the IMU in 5 ms blocks (measured cost factor). The 'frame' replay must reproduce the
 measured ages before the 'idle' replay is believed.
 """
 import argparse
@@ -134,7 +135,10 @@ def measured(data):
     return rows
 
 
-POLICIES = ('frame', 'idle', 'idle+admit')
+POLICIES = ('frame', 'idle', 'idle+admit', 'idle+admit+5ms')
+# IMU cost with 5 ms propagation blocks relative to per-sample propagation,
+# measured on vio_imu_preintegration.advance (3000 samples: 30.3 / 118.5 ms).
+BLOCK_IMU_COST_FACTOR = .256
 
 
 def replay(data, policy, period=.1, publication_max_age=None):
@@ -143,13 +147,14 @@ def replay(data, policy, period=.1, publication_max_age=None):
         raise ValueError('policy must be one of %s' % (POLICIES,))
     from vio_admission import Admission
     publication_max_age = SOURCE_PUBLICATION_MAX_AGE_S if publication_max_age is None else publication_max_age
-    admission = Admission(publication_max_age) if policy == 'idle+admit' else None
+    admission = Admission(publication_max_age) if policy.startswith('idle+admit') else None
+    imu_factor = BLOCK_IMU_COST_FACTOR if policy.endswith('+5ms') else 1.
     clock, recorded = data['clock'], data['stream']
     costs = []
     for r in recorded:
         imu = r.get('imu_processing_wall_s') or 0.
         count = (r.get('imu_batch') or {}).get('count') or 0
-        costs.append((r['t'], max(0., r['processing_s']-imu), imu/count if count else 0.))
+        costs.append((r['t'], max(0., r['processing_s']-imu), imu_factor*imu/count if count else 0.))
     times = [c[0] for c in costs]
     def cost_at(t):
         i = min(range(len(times)), key=lambda k: abs(times[k]-t))
