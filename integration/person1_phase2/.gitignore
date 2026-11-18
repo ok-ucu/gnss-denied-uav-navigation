@@ -1,0 +1,14 @@
+# Generated DataFlash export results
+output_test_*/
+output_*/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Temporary or incomplete exports
+*.tmp
+*.partial
+
+# Local Python virtual environment
+.venv/
