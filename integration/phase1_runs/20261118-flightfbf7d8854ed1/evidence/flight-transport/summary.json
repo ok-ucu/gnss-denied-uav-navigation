@@ -1,0 +1,21 @@
+{
+  "odom_received": 199,
+  "mapped_pairs": 159,
+  "vision_received": 318,
+  "validated_capture_packets": 318,
+  "vision_sent_to_fcu": 318,
+  "control_sent_to_fcu": 0,
+  "heartbeat": 36,
+  "armed_samples": 17,
+  "clock_proof_checks": 215,
+  "system_time_requests": 215,
+  "simulation_origin_initializations": 1,
+  "simulation_flight_commands_sent": 6,
+  "clock_mapping_verified": true,
+  "clock_latched": false,
+  "gate_reason": "owner shutdown",
+  "decision": "HOLD",
+  "execution_allowed": false,
+  "forwarding_enabled": false,
+  "scope": "SIMULATION flight vision ingress; no production authority"
+}

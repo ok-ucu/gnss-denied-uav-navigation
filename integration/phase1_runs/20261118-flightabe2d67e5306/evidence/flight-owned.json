@@ -1,0 +1,1062 @@
+[
+  {
+    "Id": "5f0ebd672eb05f19f605dc894cd8e18bcb879906ccea2104cab988e963f0d01c",
+    "Created": "2026-11-18T13:26:07.777707858Z",
+    "Path": "bash",
+    "Args": [
+      "-lc",
+      "source /opt/ros/jazzy/setup.bash; export LD_PRELOAD=/opt/phase1/native_parts_render.so; export CAMERA_TRACE_PREFIX=/tmp/phase1_camera_boundary; exec gz sim -s -r --headless-rendering -v 3 /run/integration/models/world.sdf"
+    ],
+    "State": {
+      "Status": "running",
+      "Running": true,
+      "Paused": false,
+      "Restarting": false,
+      "OOMKilled": false,
+      "Dead": false,
+      "Pid": 25170,
+      "ExitCode": 0,
+      "Error": "",
+      "StartedAt": "2026-11-18T13:26:07.972480174Z",
+      "FinishedAt": "0001-01-01T00:00:00Z"
+    },
+    "Image": "sha256:a3c07ff44fe554a31b122a009a5d1c95900fc38166ae44b6ec1f4facb9a89784",
+    "ResolvConfPath": "/var/lib/docker/containers/5f0ebd672eb05f19f605dc894cd8e18bcb879906ccea2104cab988e963f0d01c/resolv.conf",
+    "HostnamePath": "/var/lib/docker/containers/5f0ebd672eb05f19f605dc894cd8e18bcb879906ccea2104cab988e963f0d01c/hostname",
+    "HostsPath": "/var/lib/docker/containers/5f0ebd672eb05f19f605dc894cd8e18bcb879906ccea2104cab988e963f0d01c/hosts",
+    "LogPath": "/var/lib/docker/containers/5f0ebd672eb05f19f605dc894cd8e18bcb879906ccea2104cab988e963f0d01c/5f0ebd672eb05f19f605dc894cd8e18bcb879906ccea2104cab988e963f0d01c-json.log",
+    "Name": "/gnss-p1-physics-20261118-flightabe2d67e5306",
+    "RestartCount": 0,
+    "Driver": "overlayfs",
+    "Platform": "linux",
+    "MountLabel": "",
+    "ProcessLabel": "",
+    "AppArmorProfile": "docker-default",
+    "ExecIDs": null,
+    "HostConfig": {
+      "Binds": [
+        "/home/solomiia/gnss-vio-fusion-856a77c/integration:/opt/integration:ro",
+        "/home/solomiia/gnss-vio-fusion-856a77c/integration/phase1_runs/20261118-flightabe2d67e5306:/run/integration:rw",
+        "/home/solomiia/gnss-vio-fusion-856a77c/integration/linux_gpu_runs/vio-fusion01:/opt/vio:ro"
+      ],
+      "ContainerIDFile": "",
+      "LogConfig": {
+        "Type": "json-file",
+        "Config": {}
+      },
+      "NetworkMode": "gnss-p1-integrated-20261118-flightabe2d67e5306",
+      "PortBindings": {},
+      "RestartPolicy": {
+        "Name": "no",
+        "MaximumRetryCount": 0
+      },
+      "AutoRemove": false,
+      "VolumeDriver": "",
+      "VolumesFrom": null,
+      "ConsoleSize": [
+        0,
+        0
+      ],
+      "CapAdd": null,
+      "CapDrop": null,
+      "CgroupnsMode": "private",
+      "Dns": null,
+      "DnsOptions": null,
+      "DnsSearch": null,
+      "ExtraHosts": [],
+      "GroupAdd": null,
+      "IpcMode": "private",
+      "Cgroup": "",
+      "Links": null,
+      "OomScoreAdj": 0,
+      "PidMode": "",
+      "Privileged": false,
+      "PublishAllPorts": false,
+      "ReadonlyRootfs": false,
+      "SecurityOpt": null,
+      "UTSMode": "",
+      "UsernsMode": "",
+      "ShmSize": 67108864,
+      "Runtime": "runc",
+      "Isolation": "",
+      "CpuShares": 0,
+      "Memory": 2147483648,
+      "NanoCpus": 3000000000,
+      "CgroupParent": "",
+      "BlkioWeight": 0,
+      "BlkioWeightDevice": null,
+      "BlkioDeviceReadBps": null,
+      "BlkioDeviceWriteBps": null,
+      "BlkioDeviceReadIOps": null,
+      "BlkioDeviceWriteIOps": null,
+      "CpuPeriod": 0,
+      "CpuQuota": 0,
+      "CpuRealtimePeriod": 0,
+      "CpuRealtimeRuntime": 0,
+      "CpusetCpus": "",
+      "CpusetMems": "",
+      "Devices": null,
+      "DeviceCgroupRules": null,
+      "DeviceRequests": [
+        {
+          "Driver": "",
+          "Count": -1,
+          "DeviceIDs": null,
+          "Capabilities": [
+            [
+              "gpu"
+            ]
+          ],
+          "Options": null
+        }
+      ],
+      "MemoryReservation": 0,
+      "MemorySwap": 4294967296,
+      "MemorySwappiness": null,
+      "OomKillDisable": null,
+      "PidsLimit": null,
+      "Ulimits": null,
+      "CpuCount": 0,
+      "CpuPercent": 0,
+      "IOMaximumIOps": 0,
+      "IOMaximumBandwidth": 0,
+      "Mounts": [
+        {
+          "Type": "bind",
+          "Source": "/usr/share/glvnd/egl_vendor.d/10_nvidia.json",
+          "Target": "/usr/share/glvnd/egl_vendor.d/10_nvidia.json",
+          "ReadOnly": true,
+          "BindOptions": {}
+        }
+      ],
+      "MaskedPaths": [
+        "/proc/acpi",
+        "/proc/asound",
+        "/proc/interrupts",
+        "/proc/kcore",
+        "/proc/keys",
+        "/proc/latency_stats",
+        "/proc/sched_debug",
+        "/proc/scsi",
+        "/proc/timer_list",
+        "/proc/timer_stats",
+        "/sys/devices/virtual/powercap",
+        "/sys/firmware",
+        "/sys/devices/system/cpu/cpu0/thermal_throttle",
+        "/sys/devices/system/cpu/cpu1/thermal_throttle",
+        "/sys/devices/system/cpu/cpu2/thermal_throttle",
+        "/sys/devices/system/cpu/cpu3/thermal_throttle",
+        "/sys/devices/system/cpu/cpu4/thermal_throttle",
+        "/sys/devices/system/cpu/cpu5/thermal_throttle",
+        "/sys/devices/system/cpu/cpu6/thermal_throttle",
+        "/sys/devices/system/cpu/cpu7/thermal_throttle",
+        "/sys/devices/system/cpu/cpu8/thermal_throttle",
+        "/sys/devices/system/cpu/cpu9/thermal_throttle",
+        "/sys/devices/system/cpu/cpu10/thermal_throttle",
+        "/sys/devices/system/cpu/cpu11/thermal_throttle",
+        "/sys/devices/system/cpu/cpu12/thermal_throttle",
+        "/sys/devices/system/cpu/cpu13/thermal_throttle",
+        "/sys/devices/system/cpu/cpu14/thermal_throttle",
+        "/sys/devices/system/cpu/cpu15/thermal_throttle"
+      ],
+      "ReadonlyPaths": [
+        "/proc/bus",
+        "/proc/fs",
+        "/proc/irq",
+        "/proc/sys",
+        "/proc/sysrq-trigger"
+      ]
+    },
+    "Storage": {
+      "RootFS": {
+        "Snapshot": {
+          "Name": "overlayfs"
+        }
+      }
+    },
+    "Mounts": [
+      {
+        "Type": "bind",
+        "Source": "/usr/share/glvnd/egl_vendor.d/10_nvidia.json",
+        "Destination": "/usr/share/glvnd/egl_vendor.d/10_nvidia.json",
+        "Mode": "",
+        "RW": false,
+        "Propagation": "rprivate"
+      },
+      {
+        "Type": "bind",
+        "Source": "/home/solomiia/gnss-vio-fusion-856a77c/integration",
+        "Destination": "/opt/integration",
+        "Mode": "ro",
+        "RW": false,
+        "Propagation": "rprivate"
+      },
+      {
+        "Type": "bind",
+        "Source": "/home/solomiia/gnss-vio-fusion-856a77c/integration/phase1_runs/20261118-flightabe2d67e5306",
+        "Destination": "/run/integration",
+        "Mode": "rw",
+        "RW": true,
+        "Propagation": "rprivate"
+      },
+      {
+        "Type": "bind",
+        "Source": "/home/solomiia/gnss-vio-fusion-856a77c/integration/linux_gpu_runs/vio-fusion01",
+        "Destination": "/opt/vio",
+        "Mode": "ro",
+        "RW": false,
+        "Propagation": "rprivate"
+      }
+    ],
+    "Config": {
+      "Hostname": "5f0ebd672eb0",
+      "Domainname": "",
+      "User": "root",
+      "AttachStdin": false,
+      "AttachStdout": true,
+      "AttachStderr": true,
+      "Tty": false,
+      "OpenStdin": false,
+      "StdinOnce": false,
+      "Env": [
+        "LIBGL_ALWAYS_SOFTWARE=0",
+        "ROS_DOMAIN_ID=108",
+        "GZ_SIM_RESOURCE_PATH=/run/integration/models:/opt/ardupilot_gazebo/models:/opt/ardupilot_gazebo/worlds",
+        "GZ_SIM_SYSTEM_PLUGIN_PATH=/opt/ardupilot_gazebo/build",
+        "FASTRTPS_DEFAULT_PROFILES_FILE=/opt/integration/live_vio_observer_udp.xml",
+        "__GLX_VENDOR_LIBRARY_NAME=nvidia",
+        "PYTHONPATH=/opt/integration",
+        "GZ_PARTITION=gnss-p1-integrated-20261118-flightabe2d67e5306",
+        "__EGL_VENDOR_LIBRARY_FILENAMES=/usr/share/glvnd/egl_vendor.d/10_nvidia.json",
+        "NVIDIA_DRIVER_CAPABILITIES=graphics,utility,compute",
+        "QT_QPA_PLATFORM=offscreen",
+        "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+        "LANG=C.UTF-8",
+        "LC_ALL=C.UTF-8",
+        "ROS_DISTRO=jazzy"
+      ],
+      "Cmd": [
+        "-lc",
+        "source /opt/ros/jazzy/setup.bash; export LD_PRELOAD=/opt/phase1/native_parts_render.so; export CAMERA_TRACE_PREFIX=/tmp/phase1_camera_boundary; exec gz sim -s -r --headless-rendering -v 3 /run/integration/models/world.sdf"
+      ],
+      "Image": "sha256:a3c07ff44fe554a31b122a009a5d1c95900fc38166ae44b6ec1f4facb9a89784",
+      "Volumes": null,
+      "WorkingDir": "",
+      "Entrypoint": [
+        "bash"
+      ],
+      "Labels": {
+        "com.docker.compose.config-hash": "0026c9d7d404cdc6e7ebddf18d2cb966a8cf85a2d99f96944f642176226a12e6",
+        "com.docker.compose.container-number": "1",
+        "com.docker.compose.depends_on": "",
+        "com.docker.compose.image": "sha256:a3c07ff44fe554a31b122a009a5d1c95900fc38166ae44b6ec1f4facb9a89784",
+        "com.docker.compose.oneoff": "False",
+        "com.docker.compose.project": "gnss-phase1-integrated-20261118-flightabe2d67e5306",
+        "com.docker.compose.project.config_files": "/home/solomiia/gnss-vio-fusion-856a77c/integration/phase1.compose.yaml,/home/solomiia/gnss-vio-fusion-856a77c/integration/linux_gpu/phase1.gpu.nvidia.yaml",
+        "com.docker.compose.project.environment_file": "/home/solomiia/gnss-vio-fusion-856a77c/integration/phase1_runs/20261118-flightabe2d67e5306/compose.env",
+        "com.docker.compose.project.working_dir": "/home/solomiia/gnss-vio-fusion-856a77c/integration",
+        "com.docker.compose.service": "physics",
+        "com.docker.compose.version": "2.40.3",
+        "org.opencontainers.image.version": "24.04"
+      }
+    },
+    "NetworkSettings": {
+      "SandboxID": "7661d6f4430b661a7ee576be948b638a158da2f9cf26d2d0d024816b8f8df45e",
+      "SandboxKey": "/var/run/docker/netns/7661d6f4430b",
+      "Ports": {},
+      "Networks": {
+        "gnss-p1-integrated-20261118-flightabe2d67e5306": {
+          "IPAMConfig": null,
+          "Links": null,
+          "Aliases": [
+            "gnss-p1-physics-20261118-flightabe2d67e5306",
+            "physics"
+          ],
+          "DriverOpts": null,
+          "GwPriority": 0,
+          "NetworkID": "79d85e01f5179df090c0063e51a685b37f44af993a148150665ca2592a9ec4d9",
+          "EndpointID": "0da6926d91187499cee88af92264160fd24d6ac123c3bbc155db33f50a69e6d8",
+          "Gateway": "",
+          "IPAddress": "172.27.0.2",
+          "MacAddress": "46:8c:c8:bf:96:79",
+          "IPPrefixLen": 16,
+          "IPv6Gateway": "",
+          "GlobalIPv6Address": "",
+          "GlobalIPv6PrefixLen": 0,
+          "DNSNames": [
+            "gnss-p1-physics-20261118-flightabe2d67e5306",
+            "physics",
+            "5f0ebd672eb0"
+          ]
+        }
+      }
+    },
+    "ImageManifestDescriptor": {
+      "mediaType": "application/vnd.oci.image.manifest.v1+json",
+      "digest": "sha256:1bdd768c71e890769c3adccfedcd22e979d87d0eb183dfe88a75e49f8afca08a",
+      "size": 3349,
+      "platform": {
+        "architecture": "amd64",
+        "os": "linux"
+      }
+    }
+  },
+  {
+    "Id": "c5b4b569164fdf8d64935f57bb7560dcf770120a5a853e3887cd45c62aa399f3",
+    "Created": "2026-11-18T13:26:07.838831888Z",
+    "Path": "bash",
+    "Args": [
+      "-lc",
+      "cd /run/integration/state/fcu; exec /run/integration/artifacts/arducopter --model JSON --speedup 1 --home=-35.363261,149.165230,584,0 --defaults /home/docker/ardupilot/Tools/autotest/default_params/copter.parm,/home/docker/ardupilot/Tools/autotest/default_params/gazebo-iris.parm,/run/integration/artifacts/externalnav.parm --serial0 tcp:5760 --sim-port-out 9002"
+    ],
+    "State": {
+      "Status": "running",
+      "Running": true,
+      "Paused": false,
+      "Restarting": false,
+      "OOMKilled": false,
+      "Dead": false,
+      "Pid": 25325,
+      "ExitCode": 0,
+      "Error": "",
+      "StartedAt": "2026-11-18T13:26:08.74593788Z",
+      "FinishedAt": "0001-01-01T00:00:00Z"
+    },
+    "Image": "sha256:8195bb92e1c8b997f046799ed862d154adb56e5733b2a2cdf859fe968dd987d0",
+    "ResolvConfPath": "/var/lib/docker/containers/5f0ebd672eb05f19f605dc894cd8e18bcb879906ccea2104cab988e963f0d01c/resolv.conf",
+    "HostnamePath": "/var/lib/docker/containers/5f0ebd672eb05f19f605dc894cd8e18bcb879906ccea2104cab988e963f0d01c/hostname",
+    "HostsPath": "/var/lib/docker/containers/5f0ebd672eb05f19f605dc894cd8e18bcb879906ccea2104cab988e963f0d01c/hosts",
+    "LogPath": "/var/lib/docker/containers/c5b4b569164fdf8d64935f57bb7560dcf770120a5a853e3887cd45c62aa399f3/c5b4b569164fdf8d64935f57bb7560dcf770120a5a853e3887cd45c62aa399f3-json.log",
+    "Name": "/gnss-p1-fcu-20261118-flightabe2d67e5306",
+    "RestartCount": 0,
+    "Driver": "overlayfs",
+    "Platform": "linux",
+    "MountLabel": "",
+    "ProcessLabel": "",
+    "AppArmorProfile": "docker-default",
+    "ExecIDs": null,
+    "HostConfig": {
+      "Binds": [
+        "/home/solomiia/gnss-vio-fusion-856a77c/integration:/opt/integration:ro",
+        "/home/solomiia/gnss-vio-fusion-856a77c/integration/phase1_runs/20261118-flightabe2d67e5306:/run/integration:rw",
+        "/home/solomiia/gnss-vio-fusion-856a77c/integration/linux_gpu_runs/vio-fusion01:/opt/vio:ro"
+      ],
+      "ContainerIDFile": "",
+      "LogConfig": {
+        "Type": "json-file",
+        "Config": {}
+      },
+      "NetworkMode": "container:5f0ebd672eb05f19f605dc894cd8e18bcb879906ccea2104cab988e963f0d01c",
+      "PortBindings": {},
+      "RestartPolicy": {
+        "Name": "no",
+        "MaximumRetryCount": 0
+      },
+      "AutoRemove": false,
+      "VolumeDriver": "",
+      "VolumesFrom": null,
+      "ConsoleSize": [
+        0,
+        0
+      ],
+      "CapAdd": null,
+      "CapDrop": null,
+      "CgroupnsMode": "private",
+      "Dns": null,
+      "DnsOptions": null,
+      "DnsSearch": null,
+      "ExtraHosts": [],
+      "GroupAdd": null,
+      "IpcMode": "private",
+      "Cgroup": "",
+      "Links": null,
+      "OomScoreAdj": 0,
+      "PidMode": "",
+      "Privileged": false,
+      "PublishAllPorts": false,
+      "ReadonlyRootfs": false,
+      "SecurityOpt": null,
+      "UTSMode": "",
+      "UsernsMode": "",
+      "ShmSize": 67108864,
+      "Runtime": "runc",
+      "Isolation": "",
+      "CpuShares": 0,
+      "Memory": 536870912,
+      "NanoCpus": 200000000,
+      "CgroupParent": "",
+      "BlkioWeight": 0,
+      "BlkioWeightDevice": null,
+      "BlkioDeviceReadBps": null,
+      "BlkioDeviceWriteBps": null,
+      "BlkioDeviceReadIOps": null,
+      "BlkioDeviceWriteIOps": null,
+      "CpuPeriod": 0,
+      "CpuQuota": 0,
+      "CpuRealtimePeriod": 0,
+      "CpuRealtimeRuntime": 0,
+      "CpusetCpus": "",
+      "CpusetMems": "",
+      "Devices": null,
+      "DeviceCgroupRules": null,
+      "DeviceRequests": null,
+      "MemoryReservation": 0,
+      "MemorySwap": 1073741824,
+      "MemorySwappiness": null,
+      "OomKillDisable": null,
+      "PidsLimit": null,
+      "Ulimits": null,
+      "CpuCount": 0,
+      "CpuPercent": 0,
+      "IOMaximumIOps": 0,
+      "IOMaximumBandwidth": 0,
+      "MaskedPaths": [
+        "/proc/acpi",
+        "/proc/asound",
+        "/proc/interrupts",
+        "/proc/kcore",
+        "/proc/keys",
+        "/proc/latency_stats",
+        "/proc/sched_debug",
+        "/proc/scsi",
+        "/proc/timer_list",
+        "/proc/timer_stats",
+        "/sys/devices/virtual/powercap",
+        "/sys/firmware",
+        "/sys/devices/system/cpu/cpu0/thermal_throttle",
+        "/sys/devices/system/cpu/cpu1/thermal_throttle",
+        "/sys/devices/system/cpu/cpu2/thermal_throttle",
+        "/sys/devices/system/cpu/cpu3/thermal_throttle",
+        "/sys/devices/system/cpu/cpu4/thermal_throttle",
+        "/sys/devices/system/cpu/cpu5/thermal_throttle",
+        "/sys/devices/system/cpu/cpu6/thermal_throttle",
+        "/sys/devices/system/cpu/cpu7/thermal_throttle",
+        "/sys/devices/system/cpu/cpu8/thermal_throttle",
+        "/sys/devices/system/cpu/cpu9/thermal_throttle",
+        "/sys/devices/system/cpu/cpu10/thermal_throttle",
+        "/sys/devices/system/cpu/cpu11/thermal_throttle",
+        "/sys/devices/system/cpu/cpu12/thermal_throttle",
+        "/sys/devices/system/cpu/cpu13/thermal_throttle",
+        "/sys/devices/system/cpu/cpu14/thermal_throttle",
+        "/sys/devices/system/cpu/cpu15/thermal_throttle"
+      ],
+      "ReadonlyPaths": [
+        "/proc/bus",
+        "/proc/fs",
+        "/proc/irq",
+        "/proc/sys",
+        "/proc/sysrq-trigger"
+      ]
+    },
+    "Storage": {
+      "RootFS": {
+        "Snapshot": {
+          "Name": "overlayfs"
+        }
+      }
+    },
+    "Mounts": [
+      {
+        "Type": "bind",
+        "Source": "/home/solomiia/gnss-vio-fusion-856a77c/integration",
+        "Destination": "/opt/integration",
+        "Mode": "ro",
+        "RW": false,
+        "Propagation": "rprivate"
+      },
+      {
+        "Type": "bind",
+        "Source": "/home/solomiia/gnss-vio-fusion-856a77c/integration/phase1_runs/20261118-flightabe2d67e5306",
+        "Destination": "/run/integration",
+        "Mode": "rw",
+        "RW": true,
+        "Propagation": "rprivate"
+      },
+      {
+        "Type": "bind",
+        "Source": "/home/solomiia/gnss-vio-fusion-856a77c/integration/linux_gpu_runs/vio-fusion01",
+        "Destination": "/opt/vio",
+        "Mode": "ro",
+        "RW": false,
+        "Propagation": "rprivate"
+      }
+    ],
+    "Config": {
+      "Hostname": "5f0ebd672eb0",
+      "Domainname": "",
+      "User": "root",
+      "AttachStdin": false,
+      "AttachStdout": true,
+      "AttachStderr": true,
+      "Tty": false,
+      "OpenStdin": false,
+      "StdinOnce": false,
+      "Env": [
+        "GNSS_EXPERIMENT_TRACE=/run/integration/evidence/applied.csv",
+        "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+      ],
+      "Cmd": [
+        "-lc",
+        "cd /run/integration/state/fcu; exec /run/integration/artifacts/arducopter --model JSON --speedup 1 --home=-35.363261,149.165230,584,0 --defaults /home/docker/ardupilot/Tools/autotest/default_params/copter.parm,/home/docker/ardupilot/Tools/autotest/default_params/gazebo-iris.parm,/run/integration/artifacts/externalnav.parm --serial0 tcp:5760 --sim-port-out 9002"
+      ],
+      "Image": "sha256:8195bb92e1c8b997f046799ed862d154adb56e5733b2a2cdf859fe968dd987d0",
+      "Volumes": null,
+      "WorkingDir": "/tmp",
+      "Entrypoint": [
+        "bash"
+      ],
+      "Labels": {
+        "com.docker.compose.config-hash": "9b63353fb9320aee511630044fe89541b39a17cc1d030d77b1d583e599141c71",
+        "com.docker.compose.container-number": "1",
+        "com.docker.compose.depends_on": "physics:service_started:false",
+        "com.docker.compose.image": "sha256:8195bb92e1c8b997f046799ed862d154adb56e5733b2a2cdf859fe968dd987d0",
+        "com.docker.compose.oneoff": "False",
+        "com.docker.compose.project": "gnss-phase1-integrated-20261118-flightabe2d67e5306",
+        "com.docker.compose.project.config_files": "/home/solomiia/gnss-vio-fusion-856a77c/integration/phase1.compose.yaml,/home/solomiia/gnss-vio-fusion-856a77c/integration/linux_gpu/phase1.gpu.nvidia.yaml",
+        "com.docker.compose.project.environment_file": "/home/solomiia/gnss-vio-fusion-856a77c/integration/phase1_runs/20261118-flightabe2d67e5306/compose.env",
+        "com.docker.compose.project.working_dir": "/home/solomiia/gnss-vio-fusion-856a77c/integration",
+        "com.docker.compose.service": "fcu",
+        "com.docker.compose.version": "2.40.3",
+        "org.opencontainers.image.version": "22.04"
+      }
+    },
+    "NetworkSettings": {
+      "SandboxID": "",
+      "SandboxKey": "",
+      "Ports": {},
+      "Networks": {}
+    },
+    "ImageManifestDescriptor": {
+      "mediaType": "application/vnd.oci.image.manifest.v1+json",
+      "digest": "sha256:5749d5c5231807b8531815c956151328bf7d96e5078d8f015683c0958333d37b",
+      "size": 3139,
+      "platform": {
+        "architecture": "amd64",
+        "os": "linux"
+      }
+    }
+  },
+  {
+    "Id": "9254c6c2f2b3e61945a0fa6b9834087d370e4059569a4d6cbdd01e7dd22a150d",
+    "Created": "2026-11-18T13:26:07.83971951Z",
+    "Path": "sleep",
+    "Args": [
+      "infinity"
+    ],
+    "State": {
+      "Status": "running",
+      "Running": true,
+      "Paused": false,
+      "Restarting": false,
+      "OOMKilled": false,
+      "Dead": false,
+      "Pid": 25317,
+      "ExitCode": 0,
+      "Error": "",
+      "StartedAt": "2026-11-18T13:26:08.743281945Z",
+      "FinishedAt": "0001-01-01T00:00:00Z"
+    },
+    "Image": "sha256:a3c07ff44fe554a31b122a009a5d1c95900fc38166ae44b6ec1f4facb9a89784",
+    "ResolvConfPath": "/var/lib/docker/containers/5f0ebd672eb05f19f605dc894cd8e18bcb879906ccea2104cab988e963f0d01c/resolv.conf",
+    "HostnamePath": "/var/lib/docker/containers/5f0ebd672eb05f19f605dc894cd8e18bcb879906ccea2104cab988e963f0d01c/hostname",
+    "HostsPath": "/var/lib/docker/containers/5f0ebd672eb05f19f605dc894cd8e18bcb879906ccea2104cab988e963f0d01c/hosts",
+    "LogPath": "/var/lib/docker/containers/9254c6c2f2b3e61945a0fa6b9834087d370e4059569a4d6cbdd01e7dd22a150d/9254c6c2f2b3e61945a0fa6b9834087d370e4059569a4d6cbdd01e7dd22a150d-json.log",
+    "Name": "/gnss-p1-vio-20261118-flightabe2d67e5306",
+    "RestartCount": 0,
+    "Driver": "overlayfs",
+    "Platform": "linux",
+    "MountLabel": "",
+    "ProcessLabel": "",
+    "AppArmorProfile": "docker-default",
+    "ExecIDs": null,
+    "HostConfig": {
+      "Binds": [
+        "/home/solomiia/gnss-vio-fusion-856a77c/integration:/opt/integration:ro",
+        "/home/solomiia/gnss-vio-fusion-856a77c/integration/phase1_runs/20261118-flightabe2d67e5306:/run/integration:rw",
+        "/home/solomiia/gnss-vio-fusion-856a77c/integration/linux_gpu_runs/vio-fusion01:/opt/vio:ro",
+        "gnss-p1-control-20261118-flightabe2d67e5306:/var/lib/phase1-control:rw"
+      ],
+      "ContainerIDFile": "",
+      "LogConfig": {
+        "Type": "json-file",
+        "Config": {}
+      },
+      "NetworkMode": "container:5f0ebd672eb05f19f605dc894cd8e18bcb879906ccea2104cab988e963f0d01c",
+      "PortBindings": {},
+      "RestartPolicy": {
+        "Name": "no",
+        "MaximumRetryCount": 0
+      },
+      "AutoRemove": false,
+      "VolumeDriver": "",
+      "VolumesFrom": null,
+      "ConsoleSize": [
+        0,
+        0
+      ],
+      "CapAdd": null,
+      "CapDrop": null,
+      "CgroupnsMode": "private",
+      "Dns": null,
+      "DnsOptions": null,
+      "DnsSearch": null,
+      "ExtraHosts": [],
+      "GroupAdd": null,
+      "IpcMode": "private",
+      "Cgroup": "",
+      "Links": null,
+      "OomScoreAdj": 0,
+      "PidMode": "",
+      "Privileged": false,
+      "PublishAllPorts": false,
+      "ReadonlyRootfs": false,
+      "SecurityOpt": null,
+      "UTSMode": "",
+      "UsernsMode": "",
+      "ShmSize": 67108864,
+      "Runtime": "runc",
+      "Isolation": "",
+      "CpuShares": 0,
+      "Memory": 1073741824,
+      "NanoCpus": 0,
+      "CgroupParent": "",
+      "BlkioWeight": 0,
+      "BlkioWeightDevice": null,
+      "BlkioDeviceReadBps": null,
+      "BlkioDeviceWriteBps": null,
+      "BlkioDeviceReadIOps": null,
+      "BlkioDeviceWriteIOps": null,
+      "CpuPeriod": 10000,
+      "CpuQuota": 40000,
+      "CpuRealtimePeriod": 0,
+      "CpuRealtimeRuntime": 0,
+      "CpusetCpus": "",
+      "CpusetMems": "",
+      "Devices": null,
+      "DeviceCgroupRules": null,
+      "DeviceRequests": null,
+      "MemoryReservation": 0,
+      "MemorySwap": 2147483648,
+      "MemorySwappiness": null,
+      "OomKillDisable": null,
+      "PidsLimit": null,
+      "Ulimits": null,
+      "CpuCount": 0,
+      "CpuPercent": 0,
+      "IOMaximumIOps": 0,
+      "IOMaximumBandwidth": 0,
+      "MaskedPaths": [
+        "/proc/acpi",
+        "/proc/asound",
+        "/proc/interrupts",
+        "/proc/kcore",
+        "/proc/keys",
+        "/proc/latency_stats",
+        "/proc/sched_debug",
+        "/proc/scsi",
+        "/proc/timer_list",
+        "/proc/timer_stats",
+        "/sys/devices/virtual/powercap",
+        "/sys/firmware",
+        "/sys/devices/system/cpu/cpu0/thermal_throttle",
+        "/sys/devices/system/cpu/cpu1/thermal_throttle",
+        "/sys/devices/system/cpu/cpu2/thermal_throttle",
+        "/sys/devices/system/cpu/cpu3/thermal_throttle",
+        "/sys/devices/system/cpu/cpu4/thermal_throttle",
+        "/sys/devices/system/cpu/cpu5/thermal_throttle",
+        "/sys/devices/system/cpu/cpu6/thermal_throttle",
+        "/sys/devices/system/cpu/cpu7/thermal_throttle",
+        "/sys/devices/system/cpu/cpu8/thermal_throttle",
+        "/sys/devices/system/cpu/cpu9/thermal_throttle",
+        "/sys/devices/system/cpu/cpu10/thermal_throttle",
+        "/sys/devices/system/cpu/cpu11/thermal_throttle",
+        "/sys/devices/system/cpu/cpu12/thermal_throttle",
+        "/sys/devices/system/cpu/cpu13/thermal_throttle",
+        "/sys/devices/system/cpu/cpu14/thermal_throttle",
+        "/sys/devices/system/cpu/cpu15/thermal_throttle"
+      ],
+      "ReadonlyPaths": [
+        "/proc/bus",
+        "/proc/fs",
+        "/proc/irq",
+        "/proc/sys",
+        "/proc/sysrq-trigger"
+      ]
+    },
+    "Storage": {
+      "RootFS": {
+        "Snapshot": {
+          "Name": "overlayfs"
+        }
+      }
+    },
+    "Mounts": [
+      {
+        "Type": "bind",
+        "Source": "/home/solomiia/gnss-vio-fusion-856a77c/integration",
+        "Destination": "/opt/integration",
+        "Mode": "ro",
+        "RW": false,
+        "Propagation": "rprivate"
+      },
+      {
+        "Type": "bind",
+        "Source": "/home/solomiia/gnss-vio-fusion-856a77c/integration/phase1_runs/20261118-flightabe2d67e5306",
+        "Destination": "/run/integration",
+        "Mode": "rw",
+        "RW": true,
+        "Propagation": "rprivate"
+      },
+      {
+        "Type": "bind",
+        "Source": "/home/solomiia/gnss-vio-fusion-856a77c/integration/linux_gpu_runs/vio-fusion01",
+        "Destination": "/opt/vio",
+        "Mode": "ro",
+        "RW": false,
+        "Propagation": "rprivate"
+      },
+      {
+        "Type": "volume",
+        "Name": "gnss-p1-control-20261118-flightabe2d67e5306",
+        "Source": "/var/lib/docker/volumes/gnss-p1-control-20261118-flightabe2d67e5306/_data",
+        "Destination": "/var/lib/phase1-control",
+        "Driver": "local",
+        "Mode": "rw",
+        "RW": true,
+        "Propagation": ""
+      }
+    ],
+    "Config": {
+      "Hostname": "5f0ebd672eb0",
+      "Domainname": "",
+      "User": "root",
+      "AttachStdin": false,
+      "AttachStdout": true,
+      "AttachStderr": true,
+      "Tty": false,
+      "OpenStdin": false,
+      "StdinOnce": false,
+      "Env": [
+        "QT_QPA_PLATFORM=offscreen",
+        "FASTRTPS_DEFAULT_PROFILES_FILE=/opt/integration/live_vio_observer_udp.xml",
+        "PYTHONPATH=/opt/integration",
+        "GZ_PARTITION=gnss-p1-integrated-20261118-flightabe2d67e5306",
+        "LIBGL_ALWAYS_SOFTWARE=1",
+        "GZ_SIM_RESOURCE_PATH=/run/integration/models:/opt/ardupilot_gazebo/models:/opt/ardupilot_gazebo/worlds",
+        "OMP_NUM_THREADS=1",
+        "GZ_SIM_SYSTEM_PLUGIN_PATH=/opt/ardupilot_gazebo/build",
+        "OPENBLAS_NUM_THREADS=1",
+        "ROS_DOMAIN_ID=108",
+        "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+        "LANG=C.UTF-8",
+        "LC_ALL=C.UTF-8",
+        "ROS_DISTRO=jazzy"
+      ],
+      "Cmd": [
+        "infinity"
+      ],
+      "Image": "sha256:a3c07ff44fe554a31b122a009a5d1c95900fc38166ae44b6ec1f4facb9a89784",
+      "Volumes": null,
+      "WorkingDir": "",
+      "Entrypoint": [
+        "sleep"
+      ],
+      "Labels": {
+        "com.docker.compose.config-hash": "49bdd299b10887edf2b48a08e7b8a8b5f44c7e5291f89b3dd79b501f8e0df56b",
+        "com.docker.compose.container-number": "1",
+        "com.docker.compose.depends_on": "physics:service_started:false",
+        "com.docker.compose.image": "sha256:a3c07ff44fe554a31b122a009a5d1c95900fc38166ae44b6ec1f4facb9a89784",
+        "com.docker.compose.oneoff": "False",
+        "com.docker.compose.project": "gnss-phase1-integrated-20261118-flightabe2d67e5306",
+        "com.docker.compose.project.config_files": "/home/solomiia/gnss-vio-fusion-856a77c/integration/phase1.compose.yaml,/home/solomiia/gnss-vio-fusion-856a77c/integration/linux_gpu/phase1.gpu.nvidia.yaml",
+        "com.docker.compose.project.environment_file": "/home/solomiia/gnss-vio-fusion-856a77c/integration/phase1_runs/20261118-flightabe2d67e5306/compose.env",
+        "com.docker.compose.project.working_dir": "/home/solomiia/gnss-vio-fusion-856a77c/integration",
+        "com.docker.compose.service": "vio",
+        "com.docker.compose.version": "2.40.3",
+        "org.opencontainers.image.version": "24.04"
+      }
+    },
+    "NetworkSettings": {
+      "SandboxID": "",
+      "SandboxKey": "",
+      "Ports": {},
+      "Networks": {}
+    },
+    "ImageManifestDescriptor": {
+      "mediaType": "application/vnd.oci.image.manifest.v1+json",
+      "digest": "sha256:1bdd768c71e890769c3adccfedcd22e979d87d0eb183dfe88a75e49f8afca08a",
+      "size": 3349,
+      "platform": {
+        "architecture": "amd64",
+        "os": "linux"
+      }
+    }
+  },
+  {
+    "Id": "e8255c305157362d3ec83bfd7aacbbe478ae7100b32a03bfa9868ee7264a5002",
+    "Created": "2026-11-18T13:26:07.909929615Z",
+    "Path": "sleep",
+    "Args": [
+      "infinity"
+    ],
+    "State": {
+      "Status": "running",
+      "Running": true,
+      "Paused": false,
+      "Restarting": false,
+      "OOMKilled": false,
+      "Dead": false,
+      "Pid": 25378,
+      "ExitCode": 0,
+      "Error": "",
+      "StartedAt": "2026-11-18T13:26:08.90528203Z",
+      "FinishedAt": "0001-01-01T00:00:00Z"
+    },
+    "Image": "sha256:eeba41819880d63018915092d383c5fc6d0a327ec7d230ebe349669975685aaf",
+    "ResolvConfPath": "/var/lib/docker/containers/5f0ebd672eb05f19f605dc894cd8e18bcb879906ccea2104cab988e963f0d01c/resolv.conf",
+    "HostnamePath": "/var/lib/docker/containers/5f0ebd672eb05f19f605dc894cd8e18bcb879906ccea2104cab988e963f0d01c/hostname",
+    "HostsPath": "/var/lib/docker/containers/5f0ebd672eb05f19f605dc894cd8e18bcb879906ccea2104cab988e963f0d01c/hosts",
+    "LogPath": "/var/lib/docker/containers/e8255c305157362d3ec83bfd7aacbbe478ae7100b32a03bfa9868ee7264a5002/e8255c305157362d3ec83bfd7aacbbe478ae7100b32a03bfa9868ee7264a5002-json.log",
+    "Name": "/gnss-p1-transport-20261118-flightabe2d67e5306",
+    "RestartCount": 0,
+    "Driver": "overlayfs",
+    "Platform": "linux",
+    "MountLabel": "",
+    "ProcessLabel": "",
+    "AppArmorProfile": "docker-default",
+    "ExecIDs": null,
+    "HostConfig": {
+      "Binds": [
+        "/home/solomiia/gnss-vio-fusion-856a77c/integration:/opt/integration:ro",
+        "/home/solomiia/gnss-vio-fusion-856a77c/integration/phase1_runs/20261118-flightabe2d67e5306:/run/integration:rw",
+        "/home/solomiia/gnss-vio-fusion-856a77c/integration/linux_gpu_runs/amd64-fusion-build01/mavros-export:/tmp/patch_install:ro",
+        "gnss-p1-guard-20261118-flightabe2d67e5306:/var/lib/phase1-guard:rw",
+        "gnss-p1-control-20261118-flightabe2d67e5306:/var/lib/phase1-control:rw"
+      ],
+      "ContainerIDFile": "",
+      "LogConfig": {
+        "Type": "json-file",
+        "Config": {}
+      },
+      "NetworkMode": "container:5f0ebd672eb05f19f605dc894cd8e18bcb879906ccea2104cab988e963f0d01c",
+      "PortBindings": {},
+      "RestartPolicy": {
+        "Name": "no",
+        "MaximumRetryCount": 0
+      },
+      "AutoRemove": false,
+      "VolumeDriver": "",
+      "VolumesFrom": null,
+      "ConsoleSize": [
+        0,
+        0
+      ],
+      "CapAdd": null,
+      "CapDrop": null,
+      "CgroupnsMode": "private",
+      "Dns": null,
+      "DnsOptions": null,
+      "DnsSearch": null,
+      "ExtraHosts": [],
+      "GroupAdd": null,
+      "IpcMode": "private",
+      "Cgroup": "",
+      "Links": null,
+      "OomScoreAdj": 0,
+      "PidMode": "",
+      "Privileged": false,
+      "PublishAllPorts": false,
+      "ReadonlyRootfs": false,
+      "SecurityOpt": null,
+      "UTSMode": "",
+      "UsernsMode": "",
+      "ShmSize": 67108864,
+      "Runtime": "runc",
+      "Isolation": "",
+      "CpuShares": 0,
+      "Memory": 805306368,
+      "NanoCpus": 0,
+      "CgroupParent": "",
+      "BlkioWeight": 0,
+      "BlkioWeightDevice": null,
+      "BlkioDeviceReadBps": null,
+      "BlkioDeviceWriteBps": null,
+      "BlkioDeviceReadIOps": null,
+      "BlkioDeviceWriteIOps": null,
+      "CpuPeriod": 10000,
+      "CpuQuota": 20000,
+      "CpuRealtimePeriod": 0,
+      "CpuRealtimeRuntime": 0,
+      "CpusetCpus": "",
+      "CpusetMems": "",
+      "Devices": null,
+      "DeviceCgroupRules": null,
+      "DeviceRequests": null,
+      "MemoryReservation": 0,
+      "MemorySwap": 1610612736,
+      "MemorySwappiness": null,
+      "OomKillDisable": null,
+      "PidsLimit": null,
+      "Ulimits": null,
+      "CpuCount": 0,
+      "CpuPercent": 0,
+      "IOMaximumIOps": 0,
+      "IOMaximumBandwidth": 0,
+      "MaskedPaths": [
+        "/proc/acpi",
+        "/proc/asound",
+        "/proc/interrupts",
+        "/proc/kcore",
+        "/proc/keys",
+        "/proc/latency_stats",
+        "/proc/sched_debug",
+        "/proc/scsi",
+        "/proc/timer_list",
+        "/proc/timer_stats",
+        "/sys/devices/virtual/powercap",
+        "/sys/firmware",
+        "/sys/devices/system/cpu/cpu0/thermal_throttle",
+        "/sys/devices/system/cpu/cpu1/thermal_throttle",
+        "/sys/devices/system/cpu/cpu2/thermal_throttle",
+        "/sys/devices/system/cpu/cpu3/thermal_throttle",
+        "/sys/devices/system/cpu/cpu4/thermal_throttle",
+        "/sys/devices/system/cpu/cpu5/thermal_throttle",
+        "/sys/devices/system/cpu/cpu6/thermal_throttle",
+        "/sys/devices/system/cpu/cpu7/thermal_throttle",
+        "/sys/devices/system/cpu/cpu8/thermal_throttle",
+        "/sys/devices/system/cpu/cpu9/thermal_throttle",
+        "/sys/devices/system/cpu/cpu10/thermal_throttle",
+        "/sys/devices/system/cpu/cpu11/thermal_throttle",
+        "/sys/devices/system/cpu/cpu12/thermal_throttle",
+        "/sys/devices/system/cpu/cpu13/thermal_throttle",
+        "/sys/devices/system/cpu/cpu14/thermal_throttle",
+        "/sys/devices/system/cpu/cpu15/thermal_throttle"
+      ],
+      "ReadonlyPaths": [
+        "/proc/bus",
+        "/proc/fs",
+        "/proc/irq",
+        "/proc/sys",
+        "/proc/sysrq-trigger"
+      ]
+    },
+    "Storage": {
+      "RootFS": {
+        "Snapshot": {
+          "Name": "overlayfs"
+        }
+      }
+    },
+    "Mounts": [
+      {
+        "Type": "bind",
+        "Source": "/home/solomiia/gnss-vio-fusion-856a77c/integration",
+        "Destination": "/opt/integration",
+        "Mode": "ro",
+        "RW": false,
+        "Propagation": "rprivate"
+      },
+      {
+        "Type": "bind",
+        "Source": "/home/solomiia/gnss-vio-fusion-856a77c/integration/phase1_runs/20261118-flightabe2d67e5306",
+        "Destination": "/run/integration",
+        "Mode": "rw",
+        "RW": true,
+        "Propagation": "rprivate"
+      },
+      {
+        "Type": "bind",
+        "Source": "/home/solomiia/gnss-vio-fusion-856a77c/integration/linux_gpu_runs/amd64-fusion-build01/mavros-export",
+        "Destination": "/tmp/patch_install",
+        "Mode": "ro",
+        "RW": false,
+        "Propagation": "rprivate"
+      },
+      {
+        "Type": "volume",
+        "Name": "gnss-p1-guard-20261118-flightabe2d67e5306",
+        "Source": "/var/lib/docker/volumes/gnss-p1-guard-20261118-flightabe2d67e5306/_data",
+        "Destination": "/var/lib/phase1-guard",
+        "Driver": "local",
+        "Mode": "rw",
+        "RW": true,
+        "Propagation": ""
+      },
+      {
+        "Type": "volume",
+        "Name": "gnss-p1-control-20261118-flightabe2d67e5306",
+        "Source": "/var/lib/docker/volumes/gnss-p1-control-20261118-flightabe2d67e5306/_data",
+        "Destination": "/var/lib/phase1-control",
+        "Driver": "local",
+        "Mode": "rw",
+        "RW": true,
+        "Propagation": ""
+      }
+    ],
+    "Config": {
+      "Hostname": "5f0ebd672eb0",
+      "Domainname": "",
+      "User": "",
+      "AttachStdin": false,
+      "AttachStdout": true,
+      "AttachStderr": true,
+      "Tty": false,
+      "OpenStdin": false,
+      "StdinOnce": false,
+      "Env": [
+        "PHASE1_GUARD_STATE_DIR=/var/lib/phase1-guard",
+        "GZ_SIM_SYSTEM_PLUGIN_PATH=/opt/ardupilot_gazebo/build",
+        "GZ_PARTITION=gnss-p1-integrated-20261118-flightabe2d67e5306",
+        "ROS_DOMAIN_ID=108",
+        "GZ_SIM_RESOURCE_PATH=/run/integration/models:/opt/ardupilot_gazebo/models:/opt/ardupilot_gazebo/worlds",
+        "LIBGL_ALWAYS_SOFTWARE=1",
+        "QT_QPA_PLATFORM=offscreen",
+        "FASTRTPS_DEFAULT_PROFILES_FILE=/opt/integration/live_vio_observer_udp.xml",
+        "PYTHONPATH=/opt/integration",
+        "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+        "LANG=C.UTF-8",
+        "LC_ALL=C.UTF-8",
+        "ROS_DISTRO=jazzy",
+        "ROS_LOCALHOST_ONLY=1"
+      ],
+      "Cmd": [
+        "infinity"
+      ],
+      "Image": "sha256:eeba41819880d63018915092d383c5fc6d0a327ec7d230ebe349669975685aaf",
+      "Volumes": null,
+      "WorkingDir": "",
+      "Entrypoint": [
+        "sleep"
+      ],
+      "Labels": {
+        "com.docker.compose.config-hash": "51fad36ade5e45c3436bc1c869d20638116e9a7a44d8279d250bea8fceacc840",
+        "com.docker.compose.container-number": "1",
+        "com.docker.compose.depends_on": "fcu:service_started:false,physics:service_started:false",
+        "com.docker.compose.image": "sha256:eeba41819880d63018915092d383c5fc6d0a327ec7d230ebe349669975685aaf",
+        "com.docker.compose.oneoff": "False",
+        "com.docker.compose.project": "gnss-phase1-integrated-20261118-flightabe2d67e5306",
+        "com.docker.compose.project.config_files": "/home/solomiia/gnss-vio-fusion-856a77c/integration/phase1.compose.yaml,/home/solomiia/gnss-vio-fusion-856a77c/integration/linux_gpu/phase1.gpu.nvidia.yaml",
+        "com.docker.compose.project.environment_file": "/home/solomiia/gnss-vio-fusion-856a77c/integration/phase1_runs/20261118-flightabe2d67e5306/compose.env",
+        "com.docker.compose.project.working_dir": "/home/solomiia/gnss-vio-fusion-856a77c/integration",
+        "com.docker.compose.service": "transport",
+        "com.docker.compose.version": "2.40.3",
+        "org.opencontainers.image.version": "24.04"
+      }
+    },
+    "NetworkSettings": {
+      "SandboxID": "",
+      "SandboxKey": "",
+      "Ports": {},
+      "Networks": {}
+    },
+    "ImageManifestDescriptor": {
+      "mediaType": "application/vnd.oci.image.manifest.v1+json",
+      "digest": "sha256:3a74184d1da5b48fc4b033f487ec97bc97478eabdb5a1320083ace9945ee742e",
+      "size": 2966,
+      "platform": {
+        "architecture": "amd64",
+        "os": "linux"
+      }
+    }
+  }
+]

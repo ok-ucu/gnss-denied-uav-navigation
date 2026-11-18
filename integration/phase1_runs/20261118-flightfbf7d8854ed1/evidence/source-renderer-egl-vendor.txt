@@ -1,0 +1,1 @@
+{"path": "/usr/share/glvnd/egl_vendor.d/10_nvidia.json", "symlink": false, "symlink_target": null, "resolved": "/usr/share/glvnd/egl_vendor.d/10_nvidia.json", "is_file": true}

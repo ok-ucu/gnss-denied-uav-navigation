@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "run_id": "20261118-flightabe2d67e5306",
+  "status": "FAIL",
+  "kind": "orchestrator_diagnostic_not_flight_attestation",
+  "started_utc": "2026-11-18T13:26:04.927601+00:00",
+  "ended_utc": "2026-11-18T13:27:47.189384+00:00",
+  "elapsed_seconds": 102.26,
+  "controller_exit_code": 1,
+  "controller_error": null,
+  "proof_admission": {
+    "baseline_verified": true,
+    "permit_scope": "gazebo-sitl-disarmed-vision",
+    "proof": "/home/solomiia/gnss-vio-fusion-856a77c/integration/phase1_runs/20261118-viofix03/evidence/flight_fusion_proof.json"
+  },
+  "flight_result_path": "/home/solomiia/gnss-vio-fusion-856a77c/integration/phase1_runs/20261118-flightabe2d67e5306/evidence/flight-transport/flight_result.json",
+  "flight_result_status": "FAIL",
+  "landed_disarmed_confirmed": true,
+  "flight_result_parse_error": null,
+  "next_step": "Inspect the existing flight_result.json and evidence/flight-host.jsonl; do not reuse this run ID"
+}

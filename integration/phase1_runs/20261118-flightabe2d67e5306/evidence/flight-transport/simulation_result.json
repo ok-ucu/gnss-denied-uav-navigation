@@ -1,0 +1,10 @@
+{
+  "scope": "SIMULATION flight vision ingress",
+  "vision_socket_writes": 290,
+  "failure": "VIO availability watchdog",
+  "origin_confirmed": true,
+  "complete_forwarded_pairs": 145,
+  "fcu_reception_and_fusion": "NOT VERIFIED: inspect DataFlash VISP/VISV/XKF logs",
+  "execution_allowed": false,
+  "forwarding_enabled": false
+}

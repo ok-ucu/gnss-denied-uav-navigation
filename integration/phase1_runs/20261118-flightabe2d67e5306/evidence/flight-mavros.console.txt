@@ -1,0 +1,134 @@
+[WARN] [1795008410.264847270] [rcl]: ROS_LOCALHOST_ONLY is deprecated but still honored if it is enabled. Use ROS_AUTOMATIC_DISCOVERY_RANGE and ROS_STATIC_PEERS instead.
+[WARN] [1795008410.264865322] [rcl]: 'localhost_only' is enabled, 'automatic_discovery_range' and 'static_peers' will be ignored.
+[INFO] [1795008410.285400889] [mavros_node]: Starting mavros_node container
+[INFO] [1795008410.285486541] [mavros_node]: FCU URL: udp://127.0.0.1:14891@127.0.0.1:14890
+[INFO] [1795008410.285498520] [mavros_node]: GCS URL: 
+[INFO] [1795008410.285504653] [mavros_node]: UAS Prefix: /uas1
+[INFO] [1795008410.285511365] [mavros_node]: Starting mavros router node
+[INFO] [1795008410.296657891] [mavros_router]: Built-in SIMD instructions: SSE, SSE2
+[INFO] [1795008410.296690363] [mavros_router]: Built-in MAVLink package version: 2026.9.9
+[INFO] [1795008410.296707037] [mavros_router]: Known MAVLink dialects: common ardupilotmega ASLUAV AVSSUAS all csAirLink cubepilot development icarous loweheiser marsh paparazzi standard stemstudios storm32 uAvionix
+[INFO] [1795008410.296716388] [mavros_router]: MAVROS Router started
+[INFO] [1795008410.296905514] [mavros_node]: Starting mavros uas node
+[INFO] [1795008410.331534003] [mavros_router]: Requested to add endpoint: type: 0, url: udp://127.0.0.1:14891@127.0.0.1:14890
+[INFO] [1795008410.331584391] [mavros_router]: Endpoint link[1000] created
+[INFO] [1795008410.331901797] [mavros_router]: link[1000] opened successfully
+[INFO] [1795008410.331922000] [mavros_router]: Requested to add endpoint: type: 2, url: /uas1
+[INFO] [1795008410.331943468] [mavros_router]: Endpoint link[1001] created
+[INFO] [1795008410.336496167] [mavros_router]: link[1001] opened successfully
+[INFO] [1795008410.341626504] [mavros]: UAS Executor started, threads: 4
+[INFO] [1795008410.341680634] [mavros]: Plugin actuator_control ignored
+[INFO] [1795008410.341774668] [mavros]: Plugin adsb ignored
+[INFO] [1795008410.341792406] [mavros]: Plugin altitude ignored
+[INFO] [1795008410.341804066] [mavros]: Plugin cam_imu_sync ignored
+[INFO] [1795008410.341814691] [mavros]: Plugin camera ignored
+[INFO] [1795008410.341825380] [mavros]: Plugin cellular_status ignored
+[INFO] [1795008410.341835875] [mavros]: Plugin command ignored
+[INFO] [1795008410.341847071] [mavros]: Plugin companion_process_status ignored
+[INFO] [1795008410.341858328] [mavros]: Plugin debug_value ignored
+[INFO] [1795008410.341873094] [mavros]: Plugin distance_sensor ignored
+[INFO] [1795008410.341883950] [mavros]: Plugin esc_status ignored
+[INFO] [1795008410.341894498] [mavros]: Plugin esc_telemetry ignored
+[INFO] [1795008410.341905016] [mavros]: Plugin fake_gps ignored
+[INFO] [1795008410.341922092] [mavros]: Plugin ftp ignored
+[INFO] [1795008410.341933553] [mavros]: Plugin geofence ignored
+[INFO] [1795008410.341946210] [mavros]: Plugin gimbal_control ignored
+[INFO] [1795008410.341957892] [mavros]: Plugin global_position ignored
+[INFO] [1795008410.341970311] [mavros]: Plugin gps_input ignored
+[INFO] [1795008410.341981919] [mavros]: Plugin gps_rtk ignored
+[INFO] [1795008410.341995104] [mavros]: Plugin gps_status ignored
+[INFO] [1795008410.342006700] [mavros]: Plugin guided_target ignored
+[INFO] [1795008410.342019482] [mavros]: Plugin hil ignored
+[INFO] [1795008410.342041832] [mavros]: Plugin home_position ignored
+[INFO] [1795008410.342055217] [mavros]: Plugin imu ignored
+[INFO] [1795008410.342066634] [mavros]: Plugin landing_target ignored
+[INFO] [1795008410.342078766] [mavros]: Plugin local_position ignored
+[INFO] [1795008410.342090647] [mavros]: Plugin log_transfer ignored
+[INFO] [1795008410.342104224] [mavros]: Plugin mag_calibration_status ignored
+[INFO] [1795008410.342115972] [mavros]: Plugin manual_control ignored
+[INFO] [1795008410.342126772] [mavros]: Plugin mocap_pose_estimate ignored
+[INFO] [1795008410.342139541] [mavros]: Plugin mount_control ignored
+[INFO] [1795008410.342151312] [mavros]: Plugin nav_controller_output ignored
+[INFO] [1795008410.342167666] [mavros]: Plugin obstacle_distance ignored
+[INFO] [1795008410.342179283] [mavros]: Plugin obstacle_distance_3d ignored
+[INFO] [1795008410.342192570] [mavros]: Plugin odometry ignored
+[INFO] [1795008410.342203982] [mavros]: Plugin onboard_computer_status ignored
+[INFO] [1795008410.342217854] [mavros]: Plugin open_drone_id ignored
+[INFO] [1795008410.342233385] [mavros]: Plugin optical_flow ignored
+[INFO] [1795008410.342244789] [mavros]: Plugin param ignored
+[INFO] [1795008410.342291195] [mavros]: Plugin play_tune ignored
+[INFO] [1795008410.342313502] [mavros]: Plugin px4flow ignored
+[INFO] [1795008410.342325977] [mavros]: Plugin rallypoint ignored
+[INFO] [1795008410.342332968] [mavros]: Plugin rangefinder ignored
+[INFO] [1795008410.342341950] [mavros]: Plugin rc_io ignored
+[INFO] [1795008410.342353790] [mavros]: Plugin setpoint_accel ignored
+[INFO] [1795008410.342364656] [mavros]: Plugin setpoint_attitude ignored
+[INFO] [1795008410.342376451] [mavros]: Plugin setpoint_position ignored
+[INFO] [1795008410.342387899] [mavros]: Plugin setpoint_raw ignored
+[INFO] [1795008410.342400450] [mavros]: Plugin setpoint_trajectory ignored
+[INFO] [1795008410.342412576] [mavros]: Plugin setpoint_velocity ignored
+[INFO] [1795008410.342425402] [mavros]: Plugin sim_state ignored
+[INFO] [1795008410.376249063] [mavros]: Plugin sys_status created
+[INFO] [1795008410.376330577] [mavros]: Plugin sys_status initialized
+[INFO] [1795008410.376346197] [mavros]: Plugin sys_time ignored
+[INFO] [1795008410.391053557] [mavros.time]: TM: Timesync mode: MAVLINK
+[INFO] [1795008410.392713946] [mavros]: Plugin sys_time_patched created
+[INFO] [1795008410.392763146] [mavros]: Plugin sys_time_patched initialized
+[INFO] [1795008410.392786090] [mavros]: Plugin tdr_radio ignored
+[INFO] [1795008410.392801654] [mavros]: Plugin terrain ignored
+[INFO] [1795008410.392815761] [mavros]: Plugin trajectory ignored
+[INFO] [1795008410.392827899] [mavros]: Plugin tunnel ignored
+[INFO] [1795008410.392852855] [mavros]: Plugin vfr_hud ignored
+[INFO] [1795008410.392861436] [mavros]: Plugin vibration ignored
+[INFO] [1795008410.429232958] [mavros]: Plugin vision_pose created
+[INFO] [1795008410.429284581] [mavros]: Plugin vision_pose initialized
+[INFO] [1795008410.440862453] [mavros]: Plugin vision_speed created
+[INFO] [1795008410.440907559] [mavros]: Plugin vision_speed initialized
+[INFO] [1795008410.440925346] [mavros]: Plugin waypoint ignored
+[INFO] [1795008410.440940318] [mavros]: Plugin wheel_odometry ignored
+[INFO] [1795008410.440952978] [mavros]: Plugin wind_estimation ignored
+[INFO] [1795008410.442102548] [mavros]: Built-in SIMD instructions: SSE, SSE2
+[INFO] [1795008410.442126117] [mavros]: Built-in MAVLink package version: 2026.9.9
+[INFO] [1795008410.442137286] [mavros]: Known MAVLink dialects: common ardupilotmega ASLUAV AVSSUAS all csAirLink cubepilot development icarous loweheiser marsh paparazzi standard stemstudios storm32 uAvionix
+[INFO] [1795008410.442148518] [mavros]: MAVROS UAS via /uas1 started. MY ID 1.191, TARGET ID 1.1
+[INFO] [1795008410.491548012] [mavros_router]: link[1001] detected remote address 1.191
+[ERROR] [1795008412.377980576] [mavros.sys]: VER: autopilot version service timeout
+[ERROR] [1795008412.378069488] [mavros.sys]: VER: command plugin service call failed!
+[ERROR] [1795008413.380724376] [mavros.sys]: VER: autopilot version service timeout
+[ERROR] [1795008413.380790385] [mavros.sys]: VER: command plugin service call failed!
+[WARN] [1795008413.380804083] [mavros.sys]: VER: broadcast request timeout, retries left 4
+[INFO] [1795008414.347824940] [mavros_router]: link[1000] detected remote address 1.1
+[INFO] [1795008414.348049439] [mavros]: CON: Got HEARTBEAT, connected. FCU: ArduPilot
+[WARN] [1795008414.353638136] [mavros.time]: TM: RTT too high for timesync: 24757.00 ms.
+[WARN] [1795008414.354478922] [mavros.time]: TM: RTT too high for timesync: 40.00 ms.
+[ERROR] [1795008414.384365709] [mavros.sys]: VER: autopilot version service timeout
+[ERROR] [1795008414.384420772] [mavros.sys]: VER: command plugin service call failed!
+[ERROR] [1795008416.349854798] [mavros.sys]: VER: autopilot version service timeout
+[ERROR] [1795008416.349909439] [mavros.sys]: VER: command plugin service call failed!
+[WARN] [1795008416.349926226] [mavros.sys]: VER: broadcast request timeout, retries left 4
+[ERROR] [1795008417.352712092] [mavros.sys]: VER: autopilot version service timeout
+[ERROR] [1795008417.352763718] [mavros.sys]: VER: command plugin service call failed!
+[WARN] [1795008417.352776736] [mavros.sys]: VER: broadcast request timeout, retries left 3
+[ERROR] [1795008418.356478909] [mavros.sys]: VER: autopilot version service timeout
+[ERROR] [1795008418.356567528] [mavros.sys]: VER: command plugin service call failed!
+[WARN] [1795008418.356592355] [mavros.sys]: VER: unicast request timeout, retries left 2
+[INFO] [1795008418.530090252] [mavros.sys]: FCU: EKF3 IMU0 origin set
+[INFO] [1795008418.530283416] [mavros.sys]: FCU: EKF3 IMU1 origin set
+[INFO] [1795008418.549757593] [mavros.sys]: FCU: Field Elevation Set: 584m
+[INFO] [1795008418.609013408] [mavros.sys]: FCU: EKF3 IMU0 is using external nav data
+[INFO] [1795008418.609111548] [mavros.sys]: FCU: EKF3 IMU0 initial pos NED = 0.0,0.0,-0.1 (m)
+[INFO] [1795008418.609316820] [mavros.sys]: FCU: EKF3 IMU0 initial vel NED = -0.0,-0.0,0.0 (m/s)
+[INFO] [1795008418.616498477] [mavros.sys]: FCU: EKF3 IMU1 is using external nav data
+[INFO] [1795008418.616567663] [mavros.sys]: FCU: EKF3 IMU1 initial pos NED = 0.0,0.0,-0.1 (m)
+[INFO] [1795008418.616777534] [mavros.sys]: FCU: EKF3 IMU1 initial vel NED = -0.0,-0.0,0.0 (m/s)
+[ERROR] [1795008419.360140664] [mavros.sys]: VER: autopilot version service timeout
+[ERROR] [1795008419.360198416] [mavros.sys]: VER: command plugin service call failed!
+[WARN] [1795008419.360219263] [mavros.sys]: VER: unicast request timeout, retries left 1
+[ERROR] [1795008420.363167493] [mavros.sys]: VER: autopilot version service timeout
+[ERROR] [1795008420.363227917] [mavros.sys]: VER: command plugin service call failed!
+[WARN] [1795008420.363244377] [mavros.sys]: VER: unicast request timeout, retries left 0
+[ERROR] [1795008421.366178926] [mavros.sys]: VER: autopilot version service timeout
+[ERROR] [1795008421.366243135] [mavros.sys]: VER: command plugin service call failed!
+[WARN] [1795008421.366270015] [mavros.sys]: VER: your FCU don't support AUTOPILOT_VERSION, switched to default capabilities
+[INFO] [1795008436.628195779] [mavros.sys]: FCU: Arming motors
+[INFO] [1795008447.858986970] [mavros.sys]: FCU: Disarming motors

@@ -1,0 +1,11 @@
+{
+  "status": "FAIL",
+  "state": "DONE",
+  "reason": "VIO availability watchdog",
+  "armed_seen": true,
+  "deadline_host_ns": 6562013711755,
+  "landed_disarmed_confirmed": true,
+  "scope": "SIMULATION ONLY; runtime telemetry result, not Phase1 flight GO",
+  "execution_allowed": false,
+  "forwarding_enabled": false
+}

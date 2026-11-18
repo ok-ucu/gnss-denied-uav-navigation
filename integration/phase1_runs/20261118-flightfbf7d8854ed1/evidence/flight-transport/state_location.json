@@ -1,0 +1,1 @@
+{"path": "/var/lib/phase1-guard/simulation_reference.json", "persistence": "Compose run-scoped named volume when PHASE1_GUARD_STATE_DIR is set; otherwise legacy run state", "asynchronous_authorization": false}
