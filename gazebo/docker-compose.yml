@@ -20,10 +20,16 @@ services:
     image: gz-ardupilot
     network_mode: host
     environment:
+      - DISPLAY=host.docker.internal:0
+      - QT_X11_NO_MITSHM=1
       - LIBGL_ALWAYS_SOFTWARE=1
-      - DISPLAY=${DISPLAY:-:99}
+      - GALLIUM_DRIVER=llvmpipe
+      - MESA_GL_VERSION_OVERRIDE=3.3
+      - MESA_GLSL_VERSION_OVERRIDE=330
+    volumes:
+      - .:/work/gazebo   # <--- ДОДАЙТЕ ЦІ ДВА РЯДКИ
     command: >
-      gz sim -v3 -s -r --headless-rendering iris_runway.sdf
+      gz sim -v3 -r /work/gazebo/worlds/camera_world.sdf
     healthcheck:
       test: ["CMD", "gz", "topic", "-l"]
       interval: 10s
@@ -55,7 +61,9 @@ services:
           /camera/image_raw@sensor_msgs/msg/Image[gz.msgs.Image
           /camera/camera_info@sensor_msgs/msg/CameraInfo[gz.msgs.CameraInfo
           /imu@sensor_msgs/msg/Imu[gz.msgs.IMU
-          /model/camera_drone/odometry@nav_msgs/msg/Odometry[gz.msgs.Odometry
+          /model/camera_drone/odometry@nav_msgs/msg/Odometry[gz.msgs.Odometry &
+        sleep 2 &&
+        python3 /work/gazebo/record_gt.py
       "
     restart: on-failure
 
