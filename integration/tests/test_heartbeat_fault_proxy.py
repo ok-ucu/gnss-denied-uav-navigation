@@ -1,7 +1,5 @@
 """Real synthetic TCP only, no FCU endpoints or Linux runtime admission."""
-import os
 from dataclasses import replace
-from pathlib import Path
 import socket
 import select
 import subprocess
@@ -10,9 +8,8 @@ import tempfile
 import time
 import unittest
 
-from heartbeat_fault_proxy import (FaultProxy,Pending,ProxyFailure,ReceiveCollector,
-                                  RxOnlyIngress,one_way_pipe)
-from heartbeat_stage2_fixture import StreamFixture,packet,tcp_pair
+from heartbeat_fault_proxy import Pending,ProxyFailure,ReceiveCollector
+from heartbeat_stage2_fixture import StreamFixture,packet
 
 
 class ProxyTests(unittest.TestCase):

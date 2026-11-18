@@ -1,5 +1,4 @@
 """Offline synthetic IPC/spawn regressions, NOT ROS or live VIO acceptance."""
-import copy
 import queue
 import subprocess
 import sys

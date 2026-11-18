@@ -4,7 +4,6 @@ VISP/VISV Ign is backend ignore, NOT an EKF innovation-rejection counter.
 XKF4 gate samples are not per-measurement acceptance counts.
 """
 import argparse
-import bisect
 import csv
 import json
 import math

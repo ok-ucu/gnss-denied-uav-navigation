@@ -1,7 +1,6 @@
 """Authenticated private AF_UNIX fixture control; no listener or FCU connector."""
 import hashlib
 import hmac
-import json
 import socket
 
 from heartbeat_test_owner import canonical

@@ -1,7 +1,6 @@
 """Synthetic packets/build/namespace fixtures. No Docker, ROS or FCU connection."""
 import copy
 import ast
-import hashlib
 import json
 from pathlib import Path
 import tempfile

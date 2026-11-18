@@ -9,7 +9,7 @@ import unittest
 from unittest.mock import patch
 
 from heartbeat_test_owner import Blocked
-from heartbeat_witness import WitnessAuthority,validate_plan,witness_only
+from heartbeat_witness import WitnessAuthority,witness_only
 from test_heartbeat_test import FakeManager
 from test_heartbeat_test_owner import fixture
 

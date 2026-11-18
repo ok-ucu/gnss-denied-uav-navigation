@@ -1,6 +1,5 @@
 """Analytic conversions at Pi IMU origin, synthetic Odometry, no ROS/FCU."""
 import copy
-from types import SimpleNamespace as S
 import unittest
 import numpy as np
 

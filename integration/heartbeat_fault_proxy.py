@@ -7,7 +7,6 @@ namespace/firewall and separate-process bootstrap are not integrated yet.
 from collections import deque
 from dataclasses import dataclass
 import os
-import socket
 import time
 
 

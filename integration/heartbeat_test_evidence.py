@@ -7,7 +7,7 @@ from pathlib import Path
 import stat
 import time
 
-from heartbeat_test_owner import Blocked, Ledger, canonical, durable_new, verify_receipt
+from heartbeat_test_owner import Ledger, canonical, durable_new, verify_receipt
 
 
 class EvidenceError(ValueError):pass

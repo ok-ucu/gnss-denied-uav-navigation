@@ -14,7 +14,6 @@ from unittest.mock import patch
 import numpy as np
 import analyze_simulated_flight as a
 from analyze_ekf3_fusion import analyze,analyze_records
-from analyze_phase1_run import evaluate
 from physics_clock_mapping import AppliedClockMapping
 from runtime_candidate import AP_COMMIT
 from linux_gpu.verified_disarmed import load_codec

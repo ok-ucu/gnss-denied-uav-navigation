@@ -1,7 +1,6 @@
 """Synthetic physical-adapter contracts and REAL CPU frontend/EKF; no ROS/devices."""
 import copy
 import hashlib
-import json
 import math
 from pathlib import Path
 import tempfile

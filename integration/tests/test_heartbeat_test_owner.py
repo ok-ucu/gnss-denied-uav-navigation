@@ -13,7 +13,7 @@ import uuid
 
 from heartbeat_test_owner import (Blocked, CgroupIdentity, CleanupController,
     ContainerIdentity, Deadline, DockerByIdentity, Ledger, LinuxPidfdCgroup,
-    ProcessIdentity, durable_new, same_process, verify_receipt)
+    ProcessIdentity, same_process, verify_receipt)
 
 
 class Clock:

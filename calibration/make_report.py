@@ -119,7 +119,7 @@ def main():
     ]
     mark = {True: "ТАК", False: "НІ", None: "не перевірено"}
     L = []
-    L.append(f"# Звіт про калібрування камери та камера-IMU\n")
+    L.append("# Звіт про калібрування камери та камера-IMU\n")
     L.append(f"Дата: {date.today().isoformat()}  \nКамера: {args.camera_name}  \n"
              f"Мішень: {args.target}  \nКомпʼютер запису: {meta.get('host', '—')} ({meta.get('machine', '—')}), "
              f"коміт: {meta.get('git_commit') or '—'}\n")

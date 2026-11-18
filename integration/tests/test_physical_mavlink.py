@@ -1,5 +1,4 @@
 """Synthetic bytes and local PTY only; no physical FCU or hardware evidence."""
-import copy
 import fcntl
 import json
 import os

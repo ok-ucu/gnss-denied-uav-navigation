@@ -92,7 +92,6 @@ def main():
     import rclpy
     from rclpy.time import Time
     from std_msgs.msg import String
-    from rclpy.qos import QoSProfile,ReliabilityPolicy,DurabilityPolicy
     from vio_ros_out import RosOdomPublisher, quat_to_rot
     from vio_frontend import FlowFrontend
     from vio_core import VioEKF

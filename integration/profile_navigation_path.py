@@ -12,7 +12,6 @@ from stage_timing import activate, sample, stage
 from navigation_lifecycle import NavigationLifecycle
 from navigation_egress import VisionEgress
 from vio_frame_bridge import convert
-from vio_adapter import convert_pair
 
 
 def main():

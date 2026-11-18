@@ -1,13 +1,12 @@
 """Analytic basis/cross-covariance regression; synthetic, not live evidence."""
 import copy
-import math
 from pathlib import Path
 import sys
 from types import SimpleNamespace as S
 import unittest
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 import numpy as np
-from vio_frame_bridge import convert, StreamGuard, quat_matrix, matrix_quat, N, B
+from vio_frame_bridge import convert, StreamGuard, quat_matrix, N, B
 
 
 def message():
