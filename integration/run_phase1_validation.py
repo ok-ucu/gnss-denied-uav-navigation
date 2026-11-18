@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 import subprocess
 import time
-from launch_phase1 import validate_run_id
+from launch_phase1 import command_failure, validate_run_id
 from isolated_imu import isolated_imu_args
 
 parser=argparse.ArgumentParser(description=__doc__)
@@ -89,7 +89,10 @@ try:
     while source.poll() is None:
         elapsed=time.monotonic()-beginning
         if simulation:
-            if not simulation_stopped and gate.poll() is not None:raise RuntimeError('DISARMED simulation transport stopped; abort source')
+            if not simulation_stopped and gate.poll() is not None:
+                raise command_failure(
+                    'DISARMED simulation transport stopped; abort source',
+                    gate.returncode, RUN / 'evidence/transport_1.console.txt')
             if elapsed>=60 and not simulation_stopped:
                 # End the declared window while sensors still run, before source
                 # export/teardown. Never hide a watchdog failure inside the window.

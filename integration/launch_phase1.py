@@ -26,6 +26,19 @@ IMAGES = {
 }
 
 
+def command_failure(label, returncode, output):
+    """Include a bounded excerpt while preserving the full log."""
+    message = f'{label} (exit {returncode}); preserved output: {output}'
+    try:
+        with output.open('rb') as log:
+            size = log.seek(0, 2)
+            log.seek(max(0, size - 4096))
+            details = log.read(4096).decode('utf-8', errors='replace').strip()
+    except OSError:
+        return RuntimeError(message)
+    return RuntimeError(f'{message}\n{details}' if details else message)
+
+
 def validate_vio_dir(directory):
     """Mount an explicit pinned export; never fall back to another VIO copy."""
     directory = Path(directory).resolve()
@@ -172,7 +185,7 @@ def main():
         audit.write(json.dumps(dict(command=command, returncode=result.returncode)) + '\n')
         audit.flush()
         if result.returncode:
-            raise RuntimeError('Failed; preserved output: ' + str(output))
+            raise command_failure('Command failed', result.returncode, output)
     owned=None
     try:
         call(compose + ['up', '-d', '--no-build', '--pull', 'never'], run / 'evidence/compose-up.txt',60 if args.simulation_disarmed_vision else None)
