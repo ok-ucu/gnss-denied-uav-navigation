@@ -2,6 +2,8 @@
 import os
 import sys
 
+import pytest
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from regression_test import run_regression_test
@@ -15,6 +17,7 @@ def test_simulation_regression():
     assert stats["tracking_ratio"] >= 85.0
     assert stats["mean_inliers"] >= 30.0
 
+
 def test_frontend_selection_is_explicit():
     from regression_test import FallbackFlowFrontend, make_frontend
 
@@ -22,3 +25,11 @@ def test_frontend_selection_is_explicit():
     assert type(production).__module__ == "vio_frontend"
     assert type(production).__name__ == "FlowFrontend"
     assert isinstance(make_frontend(461.629, synthetic_fallback=True), FallbackFlowFrontend)
+
+
+def test_missing_production_frontend_does_not_fall_back(monkeypatch):
+    from regression_test import make_frontend
+
+    monkeypatch.setitem(sys.modules, "vio_frontend", None)
+    with pytest.raises(ModuleNotFoundError, match="vio_frontend"):
+        make_frontend(461.629)

@@ -52,6 +52,13 @@ def clock_status(stamp, clock, now=None, limit=.2):
         ipc_delivery_s=None if 'ipc_received_monotonic_s' not in clock else clock['ipc_received_monotonic_s']-clock['arrival_monotonic_s'])
 
 
+def downstream_status(matches_ready, previously_matched):
+    """Describe observed DDS counts without inferring why they fell."""
+    if matches_ready:
+        return 'matched'
+    return 'below_minimum_after_match' if previously_matched else 'awaiting_initial_match'
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--output-dir', type=Path, required=True)
@@ -129,6 +136,7 @@ def main():
                  last_seen_imu=None, last_imu_wall=None, frame_stamp=None, emitted=0,
                  accepted=0, rejected=0, gaps=0, recoveries=0, camera_period=None,
                  superseded_since_frame=0, preintegration_wall_s=0., **new_pending())
+    downstream_previously_matched = False
     publication_health=[None]
     started = time.monotonic()
     fault_events = []
@@ -317,7 +325,7 @@ def main():
                      replaced_by_acquisition_ns=round(frame[1]*1e9), last_processed_t=state['frame_stamp'])
 
     def process_frame(frame, buffers):
-        nonlocal ekf, frontend
+        nonlocal ekf, frontend, downstream_previously_matched
         gray, t, _, source_age = frame
         wall = time.monotonic()
         frame_cpu = time.thread_time()
@@ -545,8 +553,11 @@ def main():
                 epoch_matches=epoch_pub.get_subscription_count()
                 row.update(odom_subscribers=odom_matches,epoch_subscribers=epoch_matches)
                 if a.profile:row['publication_check_age_sim_s']=current_clock['t']-t
-                if odom_matches<a.min_odom_subscribers or epoch_matches<a.min_epoch_subscribers:
-                    row['downstream_status'] = 'insufficient_dds_subscribers'
+                matches_ready = (odom_matches >= a.min_odom_subscribers
+                                 and epoch_matches >= a.min_epoch_subscribers)
+                row['downstream_status'] = downstream_status(matches_ready, downstream_previously_matched)
+                downstream_previously_matched |= matches_ready
+                if not matches_ready:
                     block('waiting for downstream DDS discovery',t);row['ready']=False
                 elif not row['publication_clock_check']['valid']:
                     block('stale at publication', t)
