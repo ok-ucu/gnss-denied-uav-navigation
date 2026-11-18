@@ -25,6 +25,23 @@ def elf(machine):
 
 
 class RuntimeCandidateTests(unittest.TestCase):
+    def test_disarmed_failure_includes_bounded_transport_error(self):
+        log = self.root / 'transport_1.console.txt'
+        original = b'initial output\n' + b'x' * 5000 + b'\xff\nValueError: VIO availability watchdog\n'
+        log.write_bytes(original)
+        error = launch_phase1.command_failure('DISARMED transport stopped', 1, log)
+        self.assertIn('exit 1', str(error))
+        self.assertIn(str(log), str(error))
+        self.assertIn('ValueError: VIO availability watchdog', str(error))
+        self.assertNotIn('initial output', str(error))
+        self.assertEqual(log.read_bytes(), original)
+
+    def test_disarmed_failure_preserves_exit_code_when_log_is_missing(self):
+        log = self.root / 'missing.console.txt'
+        error = launch_phase1.command_failure('DISARMED transport stopped', 7, log)
+        self.assertIn('exit 7', str(error))
+        self.assertIn(str(log), str(error))
+
     def test_shell_runtime_inputs_are_in_source_package(self):
         selected=set((runtime.ROOT/'SOURCE_FILES.txt').read_text().splitlines())
         for name in SOURCE_SHELLS:
