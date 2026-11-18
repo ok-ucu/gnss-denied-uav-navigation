@@ -161,6 +161,7 @@ integration/tests/test_source_runtime.py
 integration/tests/test_stage_latency.py
 integration/tests/test_verified_disarmed.py
 integration/tests/test_vio_backlog.py
+integration/tests/test_vio_flight_abe2.py
 integration/tests/test_vio_flight_motion.py
 integration/tests/test_vio_flow_consistency.py
 integration/tests/test_vio_frame_bridge.py
