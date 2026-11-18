@@ -1,0 +1,63 @@
+{
+  "camera_model": "pinhole",
+  "distortion_model": "radtan",
+  "fx": 461.629,
+  "fy": 460.152,
+  "cx": 320.504,
+  "cy": 241.218,
+  "dist": [
+    -0.052148,
+    0.041209,
+    0.000812,
+    0.000114
+  ],
+  "width": 640,
+  "height": 480,
+  "T_cam_imu": [
+    [
+      0.0,
+      1.0,
+      0.0,
+      0.07
+    ],
+    [
+      -1.0,
+      0.0,
+      0.0,
+      -0.01
+    ],
+    [
+      0.0,
+      0.0,
+      1.0,
+      0.004
+    ],
+    [
+      0.0,
+      0.0,
+      0.0,
+      1.0
+    ]
+  ],
+  "timeshift_cam_imu_s": -8.121e-05,
+  "rostopic": "/cam0/image_raw",
+  "hfov_deg": 69.46,
+  "vfov_deg": 55.03,
+  "residuals": {
+    "reproj_mean_px": 0.38,
+    "reproj_median_px": 0.31,
+    "reproj_std_px": 0.29,
+    "gyro_err_mean": 0.024,
+    "gyro_err_median": 0.019,
+    "gyro_err_std": 0.021,
+    "acc_err_mean": 0.42,
+    "acc_err_median": 0.38,
+    "acc_err_std": 0.31
+  },
+  "residuals_cam_only": {
+    "reproj_mean_px": 0.35,
+    "reproj_median_px": 0.28,
+    "reproj_std_px": 0.27
+  },
+  "mount_deviation_deg": 0.0
+}

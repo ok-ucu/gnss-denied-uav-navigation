@@ -142,6 +142,15 @@ class VioEKF:
         y = np.array([z, vz]) - self.x[[2, 5]]
         return self._update(H, y, Rm, 1e9)    # тут гейт не потрібен
 
+    def update_height(self, z, sigma=None):
+        """Корекція лише висоти (z вниз) незалежним джерелом, напр. далекоміром.
+        Не бере нічого від EKF3 автопілота."""
+        sigma = self.sigma_z if sigma is None else sigma
+        H = np.zeros((1, 9))
+        H[0, 2] = 1.0
+        y = np.array([z - self.x[2]])
+        return self._update(H, y, np.array([[sigma ** 2]]), 1e9)
+
     def pose_cov(self, inflate=1.0, att_var=3e-4):
         """21 число: верхній трикутник 6x6 (x,y,z,roll,pitch,yaw)."""
         C = np.zeros((6, 6))

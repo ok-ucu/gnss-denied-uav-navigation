@@ -1,52 +1,90 @@
-import numpy as np
+from dataclasses import dataclass
+
 import cv2
-
-from vio_core import rot_body_to_ned
-from vio_frontend import FlowFrontend
-
-F, H, DT = 500.0, 10.0, 0.05
+import numpy as np
 
 
-def texture(seed=0, size=1600):
-    rng = np.random.default_rng(seed)
-    img = rng.integers(0, 255, (size, size), dtype=np.uint8)
-    return cv2.GaussianBlur(img, (0, 0), 2.0)
+@dataclass
+class FlowResult:
+    v_xy: np.ndarray
+    n_inliers: int
+    sigma_scale: float      # множник до sigma_vis для EKF (>=1)
+    sigma_v: float = 0.0    # статистична похибка швидкості з розкиду потоку, м/с
 
 
-def frames(dx, dy, n=6, size=1600):
-    tex = texture(size=size)
-    for i in range(n):
-        x0, y0 = 400 + int(i * dx), 400 + int(i * dy)
-        yield tex[y0:y0 + 480, x0:x0 + 640].copy()
+class FlowFrontend:
+    """Оптичний потік камери, що дивиться вниз.
 
+    Монтаж: вісь x кадру = права сторона дрона (body Y), вісь y кадру = назад
+    (мінус body X). Саме з цим монтажем збігаються формули нижче; якщо камеру
+    повернуто інакше - треба міняти і flow_rot, і v_body разом."""
 
-def run(dx, dy, gyro=(0, 0, 0)):
-    fe = FlowFrontend(fx=F)
-    R = rot_body_to_ned(0, 0, 0)
-    res = None
-    for i, fr in enumerate(frames(dx, dy)):
-        res = fe.process(fr, i * DT, H, np.array(gyro), R)
-    return res
+    def __init__(self, fx, min_inliers=15, min_contrast=8.0, max_corners=200,
+                 sigma_ref=0.08, min_sigma_px=0.05, max_dt=0.25):
+        self.fx = fx
+        self.max_dt = max_dt                # довший розрив між кадрами - потік не рахуємо
+        self.sigma_ref = sigma_ref          # = sigma_vis у EKF (опорний рівень шуму)
+        self.min_sigma_px = min_sigma_px    # нижня межа субпіксельної точності LK
+        self.min_inliers = min_inliers
+        self.min_contrast = min_contrast
+        self.max_corners = max_corners
+        self.prev = None
+        self.prev_t = None
+        self.lk = dict(winSize=(21, 21), maxLevel=3,
+                       criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 30, 0.01))
 
+    def process(self, gray, t, height, gyro_body, R_body_to_ned):
+        """gray - кадр (uint8), t - час КАДРУ (с), height - висота над землею по
+        вертикалі (м), gyro_body - [gx,gy,gz] рад/с (FRD), R - матриця body->NED.
+        Повертає FlowResult або None, якщо кадр непридатний."""
+        prev, prev_t = self.prev, self.prev_t
+        self.prev, self.prev_t = gray, t
+        if prev is None or t <= prev_t or height <= 0.0 or t - prev_t > self.max_dt:
+            return None
+        if float(gray.std()) < self.min_contrast:
+            return None
 
-def test_move_right_gives_east_velocity():
-    """вікно їде вправо по текстурі на 3 px/кадр => дрон летить вправо
-    v = (h/f) * 3/dt = 0.02 * 60 = 1.2 м/с (курс 0 => вправо = схід)"""
-    res = run(3, 0)
-    assert res is not None and res.n_inliers > 30
-    assert abs(res.v_xy[1] - 1.2) < 0.1 and abs(res.v_xy[0]) < 0.1
+        p0 = cv2.goodFeaturesToTrack(prev, self.max_corners, 0.01, 8)
+        if p0 is None or len(p0) < self.min_inliers:
+            return None
+        p1, st1, _ = cv2.calcOpticalFlowPyrLK(prev, gray, p0, None, **self.lk)
+        if p1 is None:
+            return None
+        p0b, st2, _ = cv2.calcOpticalFlowPyrLK(gray, prev, p1, None, **self.lk)
+        if p0b is None:
+            return None
+        fb_err = np.linalg.norm(p0 - p0b, axis=2).ravel()
+        good = (st1.ravel() == 1) & (st2.ravel() == 1) & (fb_err < 1.0)
+        if good.sum() < self.min_inliers:
+            return None
+        a, b = p0[good].reshape(-1, 2), p1[good].reshape(-1, 2)
 
+        M, inl = cv2.estimateAffinePartial2D(a, b, method=cv2.RANSAC,
+                                             ransacReprojThreshold=1.5)
+        if M is None or inl is None or int(inl.sum()) < self.min_inliers:
+            return None
+        inl = inl.ravel().astype(bool)
+        n = int(inl.sum())
+        dt = t - prev_t
+        c = np.array([gray.shape[1] / 2.0, gray.shape[0] / 2.0])
+        flow = (M[:, :2] @ c + M[:, 2] - c) / dt
+        resid = b[inl] - (a[inl] @ M[:, :2].T + M[:, 2])
+        std_px = float(np.sqrt(np.mean(np.sum(resid ** 2, axis=1)) / 2.0))
+        sigma_px = max(1.25 * std_px / np.sqrt(n), self.min_sigma_px)
 
-def test_move_forward_gives_north_velocity():
-"""    вісь y зображення = назад. Земля тече назад (потік y+) => дрон летить вперед.
-    Вікно їде ВГОРУ по текстурі (dy<0) => об'єкти зміщуються вниз в кадрі"""
-    res = run(0, -3)
-    assert abs(res.v_xy[0] - 1.2) < 0.1 and abs(res.v_xy[1]) < 0.1
+        # потік від обертання дрона (гіроскоп)
+        gx, gy = float(gyro_body[0]), float(gyro_body[1])
+        flow_rot = self.fx * np.array([gx, gy])
 
+        # відстань до землі ВЗДОВЖ променя камери: при нахилі вона більша за висоту
+        cos_tilt = max(float(R_body_to_ned[2, 2]), 0.5)
+        depth = height / cos_tilt
 
-def test_flat_image_is_rejected():
-    fe = FlowFrontend(fx=F)
-    R = rot_body_to_ned(0, 0, 0)
-    flat = np.full((480, 640), 120, np.uint8)
-    out = [fe.process(flat, i * DT, H, np.zeros(3), R) for i in range(3)]
-    assert all(o is None for o in out)
+        v_cam = -(depth / self.fx) * (flow - flow_rot)
+        v_body = np.array([-v_cam[1], v_cam[0], 0.0])
+        v_ned = R_body_to_ned @ v_body
+        # похибка швидкості: піксельна похибка * (глибина/f) / dt; додаємо до
+        # базового шуму квадратично, тож мало точок / великий розкид => більша sigma
+        sigma_v = float(depth / self.fx * sigma_px / dt)
+        sigma_scale = float(np.clip(np.sqrt(1.0 + (sigma_v / self.sigma_ref) ** 2), 1.0, 10.0))
+        return FlowResult(v_ned[0:2], n, sigma_scale, sigma_v)

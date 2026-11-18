@@ -8,7 +8,8 @@ import numpy as np
 class FlowResult:
     v_xy: np.ndarray
     n_inliers: int
-    sigma_scale: float
+    sigma_scale: float      # множник до sigma_vis для EKF (>=1)
+    sigma_v: float = 0.0    # статистична похибка швидкості з розкиду потоку, м/с
 
 
 class FlowFrontend:
@@ -18,8 +19,11 @@ class FlowFrontend:
     (мінус body X). Саме з цим монтажем збігаються формули нижче; якщо камеру
     повернуто інакше - треба міняти і flow_rot, і v_body разом."""
 
-    def __init__(self, fx, min_inliers=15, min_contrast=8.0, max_corners=200):
+    def __init__(self, fx, min_inliers=15, min_contrast=8.0, max_corners=200,
+                 sigma_ref=0.08, min_sigma_px=0.05):
         self.fx = fx
+        self.sigma_ref = sigma_ref          # = sigma_vis у EKF (опорний рівень шуму)
+        self.min_sigma_px = min_sigma_px    # нижня межа субпіксельної точності LK
         self.min_inliers = min_inliers
         self.min_contrast = min_contrast
         self.max_corners = max_corners
@@ -54,14 +58,21 @@ class FlowFrontend:
             return None
         a, b = p0[good].reshape(-1, 2), p1[good].reshape(-1, 2)
 
-        _, inl = cv2.estimateAffinePartial2D(a, b, method=cv2.RANSAC,
+        M, inl = cv2.estimateAffinePartial2D(a, b, method=cv2.RANSAC,
                                              ransacReprojThreshold=1.5)
-        if inl is None or int(inl.sum()) < self.min_inliers:
+        if M is None or inl is None or int(inl.sum()) < self.min_inliers:
             return None
         inl = inl.ravel().astype(bool)
         n = int(inl.sum())
         dt = t - prev_t
-        flow = np.median(b[inl] - a[inl], axis=0) / dt
+        # зсув у ЦЕНТРІ кадра за афінною моделлю: стійкіше за медіану, коли є
+        # поворот навколо оптичної осі або зміна масштабу (набір/втрата висоти)
+        c = np.array([gray.shape[1] / 2.0, gray.shape[0] / 2.0])
+        flow = (M[:, :2] @ c + M[:, 2] - c) / dt
+        # розкид залишків інлаєрів -> похибка оцінки зсуву (в пікселях, на вісь)
+        resid = b[inl] - (a[inl] @ M[:, :2].T + M[:, 2])
+        std_px = float(np.sqrt(np.mean(np.sum(resid ** 2, axis=1)) / 2.0))
+        sigma_px = max(1.25 * std_px / np.sqrt(n), self.min_sigma_px)
 
         # потік від обертання дрона (гіроскоп) віднімаємо, лишається потік від руху
         gx, gy = float(gyro_body[0]), float(gyro_body[1])
@@ -74,5 +85,8 @@ class FlowFrontend:
         v_cam = -(depth / self.fx) * (flow - flow_rot)
         v_body = np.array([-v_cam[1], v_cam[0], 0.0])
         v_ned = R_body_to_ned @ v_body
-        sigma_scale = float(np.clip(40.0 / n, 1.0, 5.0))
-        return FlowResult(v_ned[0:2], n, sigma_scale)
+        # похибка швидкості: піксельна похибка * (глибина/f) / dt; додаємо до
+        # базового шуму квадратично, тож мало точок / великий розкид => більша sigma
+        sigma_v = float(depth / self.fx * sigma_px / dt)
+        sigma_scale = float(np.clip(np.sqrt(1.0 + (sigma_v / self.sigma_ref) ** 2), 1.0, 10.0))
+        return FlowResult(v_ned[0:2], n, sigma_scale, sigma_v)

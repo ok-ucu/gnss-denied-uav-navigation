@@ -1,0 +1,8 @@
+{
+  "scope": "Recorded historical ROS values; protocol replay ONLY, not a live-VIO or FCU test",
+  "original_path": "integration/mavros_live_runs/20261108/wire_motion05/ingress.jsonl",
+  "original_sha256": "f3c9d67a8539834a479378ffbb8b6f616410805b49543d7beb8b85758ba4574c",
+  "selection": "First20pose acquisition stamps; matching published speed; published clock within first/last pose +/-500ms; source order and used values unchanged",
+  "fixture_sha256": "ca2653a8fac64a1e6798a453753ac5fabbeee92e8e59d4df99f0e6c4e4e95505",
+  "records": 330
+}

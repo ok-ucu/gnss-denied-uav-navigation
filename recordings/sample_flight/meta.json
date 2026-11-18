@@ -1,0 +1,36 @@
+{
+  "format": "euroc-like, див. dataset/README.md",
+  "start_wall": "2026-11-03T16:31:54.223842+02:00",
+  "duration_s": 5.0,
+  "note": "Синтетичний тестовий польот: прямий рух на 10 м висоті зі швидкістю 2 м/с",
+  "clock": "CLOCK_MONOTONIC (time.monotonic_ns), нс; час старту запису: 1700000000000000000",
+  "host": "companion-computer",
+  "machine": "arm64",
+  "camera_config": {
+    "backend": "synthetic",
+    "width": 640,
+    "height": 480,
+    "fps": 30
+  },
+  "frames_written": 150,
+  "frames_dropped": 0,
+  "frame_shape": [
+    480,
+    640
+  ],
+  "timesync": {
+    "imu": {
+      "n": 500,
+      "drift_ppm": 0.0,
+      "latency_median_ms": 1.2,
+      "latency_p95_ms": 2.5,
+      "rate_hz": 100.0
+    },
+    "attitude": {
+      "n": 150,
+      "drift_ppm": 0.0,
+      "latency_median_ms": 1.5,
+      "latency_p95_ms": 3.0
+    }
+  }
+}
