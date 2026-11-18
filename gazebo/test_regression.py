@@ -14,3 +14,11 @@ def test_simulation_regression():
     assert passed, f"Регресійний тест не пройшов: {stats}"
     assert stats["tracking_ratio"] >= 85.0
     assert stats["mean_inliers"] >= 30.0
+
+def test_frontend_selection_is_explicit():
+    from regression_test import FallbackFlowFrontend, make_frontend
+
+    production = make_frontend(461.629)
+    assert type(production).__module__ == "vio_frontend"
+    assert type(production).__name__ == "FlowFrontend"
+    assert isinstance(make_frontend(461.629, synthetic_fallback=True), FallbackFlowFrontend)

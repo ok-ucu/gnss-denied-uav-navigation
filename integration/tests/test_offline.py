@@ -65,14 +65,25 @@ class AnalysisTests(unittest.TestCase):
     def test_time_units(self):
         for unit, value in [('s','1'), ('ms','1000'), ('us','1000000'), ('ns','1000000000'),
                             ('iso','1970-01-01T00:00:01Z')]:
-            self.assertEqual(timestamp(value, unit), 1)
+            self.assertEqual(timestamp(value, unit), 1_000_000_000)
         with self.assertRaises(ValueError): timestamp('2026-01-01T00:00:00', 'iso')
+
+    def test_rejects_empty_and_ambiguous_timestamp_evidence(self):
+        position = (0, 0, 0)
+        rows = [(1_000_000_000, position), (1_100_000_000, position)]
+        with self.assertRaisesRegex(ValueError, 'At least two'):
+            compare([], rows, True, time_unit='ns')
+        with self.assertRaises(ValueError):
+            compare(rows, [(1.1, position), rows[1]], True, time_unit='ns')
+        for value in ('NaN', '1.5', '1s'):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                timestamp(value, 'ns')
 
     def test_csv_formats_and_bad_time_order(self):
         data = 't,x,y,z\n1000,2,3,-4\n2000,5,6,-7\n'
         with patch('builtins.open', mock_open(read_data=data)):
             rows = load('unused', 'ned', 't', 'ms', offset=10)
-        self.assertEqual(rows, [(11, (3,2,4)), (12, (6,5,7))])
+        self.assertEqual(rows, [(11_000_000_000, (3,2,4)), (12_000_000_000, (6,5,7))])
         with patch('builtins.open', mock_open(read_data='timestamp,east,north,up\n1,0,0,0\n1,0,0,0\n')):
             with self.assertRaises(ValueError): load('unused')
 
@@ -80,7 +91,7 @@ class AnalysisTests(unittest.TestCase):
         for header in ('timestamp,east,north,up', 'timestamp,east_m,north_m,up_m'):
             with self.subTest(header=header):
                 with patch('builtins.open', mock_open(read_data=header+'\n1,2,3,4\n2,5,6,7\n')):
-                    self.assertEqual(load('unused'), [(1, (2,3,4)), (2, (5,6,7))])
+                    self.assertEqual(load('unused'), [(1_000_000_000, (2,3,4)), (2_000_000_000, (5,6,7))])
 
     def test_sitl_enu_csv_and_explicit_truth_time_column_cli(self):
         truth = ('t_s,lat,lon,alt_m,north_m,east_m,up_m\n'
@@ -88,13 +99,13 @@ class AnalysisTests(unittest.TestCase):
         vio = 'timestamp,east,north,up\n1,10,20,3\n2,12,24,5\n'
         with patch('builtins.open', mock_open(read_data=truth)):
             self.assertEqual(load('truth.csv', time_column='t_s'),
-                             [(1, (10,20,3)), (2, (12,24,5))])
+                             [(1_000_000_000, (10,20,3)), (2_000_000_000, (12,24,5))])
         def open_csv(path, **kwargs):
             return io.StringIO(truth if path == 'truth.csv' else vio)
         with patch('builtins.open', side_effect=open_csv), \
              patch.object(sys, 'argv', ['analyze', 'truth.csv', 'vio.csv',
                                        '--truth-format', 'enu',
-                                       '--truth-time-column', 't_s', '--synchronized']), \
+                                       '--truth-time-column', 't_s', '--synchronized', '--max-gap', '1']), \
              patch('sys.stdout', new_callable=io.StringIO) as output:
             self.assertEqual(analyze_main(), 0)
         result = json.loads(output.getvalue())
@@ -118,7 +129,7 @@ class AnalysisTests(unittest.TestCase):
         self.assertEqual(result['horizontal_rmse_m'], 3)
         self.assertEqual(result['spatial_rmse_m'], 5)
         self.assertEqual(result['spatial_drift_m'], 0)
-        result = compare(truth, [(0., (0,0,0)), (2., (4,0,0))], True)
+        result = compare(truth, [(0., (0,0,0)), (2., (4,0,0))], True, max_gap=1)
         self.assertEqual(result['spatial_drift_m'], 2)
         self.assertEqual(result['spatial_drift_percent'], 100)
 

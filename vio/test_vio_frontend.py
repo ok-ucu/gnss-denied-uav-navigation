@@ -1,3 +1,5 @@
+"""Experimental camera-gap variant kept for comparison with the pinned frontend."""
+
 from dataclasses import dataclass
 
 import cv2

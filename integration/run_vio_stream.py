@@ -351,7 +351,6 @@ def main():
                        expected_processing_s=admission.expected(), kept_as_reference=skip_reference(gray, t, buffers, injected)))
             return
         row = dict(t=t, wall=wall, fault=injected, published=False,source_age=source_age)
-        phase=time.monotonic()
         try:
             if state['previous_t'] is not None and t <= state['previous_t']:
                 block('camera timestamp reset', t, reset=True)
@@ -547,6 +546,7 @@ def main():
                 row.update(odom_subscribers=odom_matches,epoch_subscribers=epoch_matches)
                 if a.profile:row['publication_check_age_sim_s']=current_clock['t']-t
                 if odom_matches<a.min_odom_subscribers or epoch_matches<a.min_epoch_subscribers:
+                    row['downstream_status'] = 'insufficient_dds_subscribers'
                     block('waiting for downstream DDS discovery',t);row['ready']=False
                 elif not row['publication_clock_check']['valid']:
                     block('stale at publication', t)
@@ -577,6 +577,9 @@ def main():
             skip_log(row['skip_reason'], round(t*1e9), 'vio_source', t=t, gate_ready=gate.ready,
                      gate_count=gate.count, inliers=row.get('inliers'), frontend_available=row.get('frontend_available'),
                      audit_reason=audit_row.get('reason'), clock_age_s=row.get('clock_age'),
+                     downstream_status=row.get('downstream_status'),
+                     odom_subscribers=row.get('odom_subscribers'),
+                     epoch_subscribers=row.get('epoch_subscribers'),
                      consistency_reason=(row.get('flow_consistency') or {}).get('reason'),
                      publication_age_s=(row.get('publication_clock_check') or {}).get('simulation_age_s'),
                      processing_s=row['processing_s'], scale_compensation=row.get('scale_compensation'),

@@ -67,7 +67,6 @@ class MockAutopilotConnection:
         self.clock_offset_s = clock_offset_s
         self.drift = drift_ppm * 1e-6
         self.t0 = time.monotonic()
-        self.rng = np.random.default_rng(42)
         self.last_sent = {k: 0.0 for k in rates}
         self.n = 0
         self.mav = self
@@ -90,7 +89,6 @@ class MockAutopilotConnection:
                 if name == "RAW_IMU":
                     self.n += 1
                     ph = self.n * 0.02
-                    jitter = self.rng.uniform(0.001, 0.004)
                     return MockMavMsg("RAW_IMU",
                                       time_usec=int(t_ap * 1e6),
                                       xgyro=int(np.sin(ph) * 80),

@@ -29,6 +29,14 @@ class GateTests(unittest.TestCase):
         self.assertFalse(self.g.assess(1.4, 2.1, **self.kw))
         self.assertFalse(self.g.assess(1.5, 2.2, **self.kw))
         self.assertTrue(self.g.assess(1.7, 2.3, **self.kw))
+    def test_one_rejected_frame_exhausts_500ms_margin_at_10hz(self):
+        self.ready()
+        self.assertFalse(self.g.assess(1.4, 1.4, **dict(self.kw, audit_ok=False)))
+        for t in (1.5, 1.6, 1.7):
+            self.assertFalse(self.g.assess(t, t, **self.kw))
+        self.assertTrue(self.g.assess(1.8, 1.8, **self.kw))
+        self.assertEqual(round((1.8 - 1.3) * 1e9), 500_000_000)
+
     def test_all_faults_fail_closed(self):
         for key, value in [('imu_age', .1), ('frame_age', .4), ('clock_age', -.1),
                            ('max_imu_gap', .263), ('inliers', 2), ('contrast', 0),

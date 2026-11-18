@@ -11,6 +11,9 @@ import sys
 import tempfile
 import unittest
 
+TESTS = Path(__file__).resolve().parent
+sys.path.insert(0, str(TESTS.parent))
+
 from heartbeat_test_owner import Blocked
 from linux_gpu.heartbeat_test import (IndependentWatchdog, ManagerRecovery,
                                     RecoveryRegistration, StartupBarrier)
@@ -167,11 +170,15 @@ finally:
 
 class RealPortableSupervisorTests(unittest.TestCase):
     def test_local_manager_survives_launcher_and_watchdog_sigkill_hang_and_normal(self):
+        paths = [str(TESTS.parent), str(TESTS)]
+        if os.environ.get('PYTHONPATH'):
+            paths.append(os.environ['PYTHONPATH'])
+        env = dict(os.environ, PYTHONPATH=os.pathsep.join(paths))
         for scenario in ('normal','launcher-sigkill','watchdog-sigkill','hang'):
             with self.subTest(scenario=scenario),tempfile.TemporaryDirectory() as temp:
                 # subprocess.run here is a TEST timeout, not a production watchdog.
                 answer=subprocess.run([sys.executable,'-B','-c',MANAGER_FIXTURE,temp,scenario],
-                    capture_output=True,text=True,timeout=12)
+                    capture_output=True,text=True,timeout=12,env=env)
                 self.assertEqual(answer.returncode,0,answer.stderr)
                 result=json.loads((Path(temp)/'fixture.result.json').read_text())
                 self.assertEqual(result['status'],'PASS',result)

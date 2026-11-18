@@ -14,3 +14,7 @@ pymavlink>=2.4.30
 
 # Конвертація в ROS1 bag для Kalibr (чистий Python, ROS не потрібен)
 rosbags>=0.9.15
+
+# Offline integration plots and GPS reference conversion
+matplotlib>=3.9.2,<4
+pyproj>=3.6,<4

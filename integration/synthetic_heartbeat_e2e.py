@@ -617,6 +617,15 @@ def worker(role,control_fd,data_fd):
         if activation:break
         time.sleep(.005)
     if not activation:return 2
+    if role == 'foreign':
+        # The unrelated fixture must stay alive while primary cleanup is observed.
+        # Creator-only teardown reaps it, with a bounded escape if the creator dies.
+        try:
+            while not stop[0] and host_now() < boot['deadline_ns'] + 2_000_000_000:
+                time.sleep(.02)
+        finally:
+            channel.close()
+        return 0
     scenario=activation['scenario'];consumer=None
     if role=='worker':signal.signal(signal.SIGTERM,signal.SIG_IGN)
     if role=='control':
