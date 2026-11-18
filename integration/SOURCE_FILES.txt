@@ -165,6 +165,7 @@ integration/tests/test_vio_flight_motion.py
 integration/tests/test_vio_flow_consistency.py
 integration/tests/test_vio_frame_bridge.py
 integration/tests/test_vio_geometry.py
+integration/tests/test_vio_ground_fixture.py
 integration/tests/test_vio_latency_contract.py
 integration/tests/test_vio_quality_gate.py
 integration/tests/test_vio_sensor_capture.py
