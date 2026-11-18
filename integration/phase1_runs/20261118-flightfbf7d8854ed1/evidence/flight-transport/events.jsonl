@@ -1,0 +1,4 @@
+{"host_ns": 2706725378627, "event": "explicit_simulation_origin_requested", "origin": [-353632620, 1491652370, 584000]}
+{"host_ns": 2706741519951, "event": "diagnostic_reference_initialized", "reference": "SIMULATION_DISARMED:3c27c1a2-0b4c-4f90-8b92-50513c5db313", "initial_acquisition_ns": 26400000000, "authorization_scope": "DISARMED Gazebo/SITL vision only", "forwarding_enabled": false}
+{"host_ns": 2732969797792, "event": "odometry_skipped", "stage": "transport_watchdog", "reason": "VIO availability watchdog", "acquisition_ns": 42300000000, "suppressed_since_last": 0, "suppressed_first_acquisition_ns": null, "suppressed_last_acquisition_ns": null, "odom_age_host_ns": 500027738, "ros_clock_ns": 42904000000, "flight_state": "CLIMB"}
+{"host_ns": 2732970775509, "event": "latched_closed", "reason": "VIO availability watchdog"}
