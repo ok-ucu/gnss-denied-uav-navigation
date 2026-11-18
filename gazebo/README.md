@@ -122,8 +122,10 @@ python gazebo/verify_optical_flow.py \
 
 ```bash
 python3 check_gazebo_stream.py --mock --duration 2.0
-python3 verify_sync_axes.py
+python3 verify_sync_axes.py --dataset ../recordings/sample_flight --max-gap-ms 5
 ```
+
+`verify_sync_axes.py` читає цілочисельні наносекундні мітки з `mav0/cam0/data.csv` та `mav0/imu0/data.csv`. Максимальна відстань до найближчого IMU відліку оцінюється в межах спільного годинника запису.
 
 Режим `--mock` використовує тестові дані та не замінює перевірку реальних сенсорних потоків у Gazebo.
 

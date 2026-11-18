@@ -9,44 +9,42 @@ echo "================================================================"
 echo "    ЗАПУСК ПЕРЕВІРОК ТА ТЕСТІВ (Людина 2: Gazebo + Сенсори)     "
 echo "================================================================"
 
-PYTHON_BIN="python3"
-if command -v /Library/Frameworks/Python.framework/Versions/3.13/bin/python3 &> /dev/null; then
-    PYTHON_BIN="/Library/Frameworks/Python.framework/Versions/3.13/bin/python3"
+PYTHON_BIN="${PYTHON_BIN:-python3}"
+if ! "$PYTHON_BIN" -B -c 'import cv2, numpy, pytest, yaml; from pymavlink import mavutil'; then
+    echo "Install requirements.txt into the environment selected by PYTHON_BIN." >&2
+    exit 1
 fi
-
-PYTEST_BIN="pytest"
-if command -v /Library/Frameworks/Python.framework/Versions/3.13/bin/pytest &> /dev/null; then
-    PYTEST_BIN="/Library/Frameworks/Python.framework/Versions/3.13/bin/pytest"
-fi
+output_dir="$(mktemp -d)"
+trap 'rm -r -- "$output_dir"' EXIT
 
 echo "[1/7] Тестування модулів через Pytest (camera, calibration, dataset, gazebo)..."
-$PYTEST_BIN camera/ calibration/ dataset/ gazebo/ -v
+"$PYTHON_BIN" -B -m pytest -p no:cacheprovider camera/ calibration/ dataset/ gazebo/ -v
 
 echo ""
 echo "[2/7] Перевірка читача датасету на еталонному польоті sample_flight..."
-$PYTHON_BIN dataset/dataset_reader.py recordings/sample_flight
+"$PYTHON_BIN" -B dataset/dataset_reader.py recordings/sample_flight
 
 echo ""
 echo "[3/7] Перевірка генерації звіту калібрування..."
-$PYTHON_BIN calibration/test_calibration.py
+"$PYTHON_BIN" -B calibration/test_calibration.py
 
 echo ""
 echo "[4/7] Запуск VIO регресійного тесту Gazebo..."
-$PYTHON_BIN gazebo/regression_test.py --dataset recordings/sample_flight
+"$PYTHON_BIN" -B gazebo/regression_test.py --dataset recordings/sample_flight
 
 echo ""
-echo "[5/7] Перевірка живої частоти сенсорів Gazebo (30 Гц камера, 200 Гц IMU)..."
-$PYTHON_BIN gazebo/check_gazebo_stream.py --mock --duration 2.0
+echo "[5/7] MOCK smoke test для перевірки частоти сенсорів..."
+"$PYTHON_BIN" -B gazebo/check_gazebo_stream.py --mock --duration 2.0
 
 echo ""
 echo "[6/7] Перевірка текстури поверхні та оптичного потоку (>50 inliers)..."
-$PYTHON_BIN gazebo/verify_optical_flow.py
+"$PYTHON_BIN" -B gazebo/verify_optical_flow.py --out-img "$output_dir/optical_flow_verification.png"
 
 echo ""
 echo "[7/7] Перевірка узгодження осей координат та часових міток з Людиною 3..."
-$PYTHON_BIN gazebo/verify_sync_axes.py
+"$PYTHON_BIN" -B gazebo/verify_sync_axes.py
 
 echo ""
 echo "================================================================"
-echo "    УСІ ТЕСТИ ТА ПЕРЕВІРКИ УСПІШНО ПРОЙДЕНО (100% PASS)!        "
+echo "    Пройдено локальні тести, перевірки запису та MOCK smoke test.        "
 echo "================================================================"

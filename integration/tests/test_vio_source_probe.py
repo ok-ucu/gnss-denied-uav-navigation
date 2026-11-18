@@ -13,11 +13,17 @@ from unittest.mock import patch
 
 import vio_source_probe as probe
 from vio_source_probe import analyze, stats, hardware_renderer
-from run_vio_stream import clock_status
+from run_vio_stream import clock_status, downstream_status
 from linux_gpu.verified_disarmed import load_codec
 
 
 class SourceProbeTests(unittest.TestCase):
+    def test_downstream_diagnostic_distinguishes_startup_from_loss(self):
+        self.assertEqual(downstream_status(False, False), 'awaiting_initial_match')
+        self.assertEqual(downstream_status(True, False), 'matched')
+        self.assertEqual(downstream_status(False, True), 'below_minimum_after_match')
+        self.assertEqual(downstream_status(True, True), 'matched')
+
     def setUp(self):
         temp=tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)

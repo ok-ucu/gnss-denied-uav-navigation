@@ -18,16 +18,14 @@
     v_body = [-v_cam_y, v_cam_x, 0]
 
 Використання:
-    python3 verify_sync_axes.py
+    python3 verify_sync_axes.py --dataset ../recordings/sample_flight
 """
-import math
-import sys
+import argparse
+from bisect import bisect_left
+import csv
+from decimal import Decimal, InvalidOperation
+from pathlib import Path
 import numpy as np
-
-R_EXPECTED = np.array([[0.0, 1.0, 0.0],
-                       [-1.0, 0.0, 0.0],
-                       [0.0, 0.0, 1.0]])
-
 
 def test_axis_transformation():
     """Тест математичного перетворення оптичного потоку у швидкість дрона."""
@@ -36,9 +34,7 @@ def test_axis_transformation():
     # Дрон летить уперед зі швидкістю 2.0 м/с (Vx = +2.0 у системі FRD)
     true_v_body = np.array([2.0, 0.0, 0.0])
 
-    # У спадній камері рух уперед викликає зсув точок назад по осі Y камери:
-    # flow_y = (v_cam_y * fx) / height, де v_cam_y = -v_body_x = -2.0
-    # Оптичний потік у пікселях за секунду:
+    # Forward body motion yields positive image flow along camera Y.
     flow = np.array([0.0, (true_v_body[0] * fx) / height])  # пікселі рухаються "вниз" по кадру
     gyro = np.array([0.0, 0.0, 0.0])
 
@@ -51,46 +47,65 @@ def test_axis_transformation():
     return err < 1e-6, true_v_body, v_body_est
 
 
-def test_timestamp_compatibility():
-    """Перевірка часової моделі синхронізації."""
-    # Симуляція часових шкал: 30 Гц кадри та 200 Гц IMU
-    t_cam = np.linspace(0, 1.0, 30)
-    t_imu = np.linspace(0, 1.0, 200)
+def read_timestamps(path):
+    """Read strictly increasing integer nanoseconds from an EuRoC sensor CSV."""
+    with path.open(newline="", encoding="utf-8-sig") as stream:
+        rows = csv.reader(stream, strict=True)
+        header = next(rows, [])
+        if not header or header[0].strip() != "#timestamp [ns]":
+            raise ValueError(f"{path}: expected #timestamp [ns] as the first column")
+        stamps = []
+        for row in rows:
+            if len(row) != len(header) or not row[0].strip().isascii() or not row[0].strip().isdecimal():
+                raise ValueError(f"{path}:{rows.line_num}: invalid timestamp row")
+            stamp = int(row[0])
+            if stamps and stamp <= stamps[-1]:
+                raise ValueError(f"{path}:{rows.line_num}: timestamps must increase")
+            stamps.append(stamp)
+        if len(stamps) < 2:
+            raise ValueError(f"{path}: at least two timestamps required")
+        return stamps
 
-    # Максимальний часовий інтервал між сусідніми кадрами та найближчим IMU
-    max_dt_to_nearest_imu = 0.5 / 200.0  # 2.5 мс
 
-    return max_dt_to_nearest_imu < 0.005, max_dt_to_nearest_imu
+def maximum_nearest_gap_ns(dataset):
+    sensors = dataset / "mav0"
+    camera = read_timestamps(sensors / "cam0" / "data.csv")
+    imu = read_timestamps(sensors / "imu0" / "data.csv")
+    if camera[0] < imu[0] or camera[-1] > imu[-1]:
+        raise ValueError("IMU timestamps must cover the full camera interval")
+    maximum = 0
+    for stamp in camera:
+        i = bisect_left(imu, stamp)
+        gap = imu[i] - stamp
+        if i:
+            gap = min(gap, stamp - imu[i - 1])
+        maximum = max(maximum, gap)
+    return maximum
 
 
-def main():
-    print("==============================================================")
-    print("      ПЕРЕВІРКА УЗГОДЖЕННЯ ОСЕЙ ТА ЧАСОВИХ МІТОК (РОЗДІЛ 4)   ")
-    print("==============================================================")
-
-    # 1. Перевірка осей
-    axis_ok, v_true, v_est = test_axis_transformation()
-    print("1. Контракт систем координат із Людиною 3 (vio_frontend.py):")
-    print("   - Осі дрона:            FRD (Forward=+X, Right=+Y, Down=+Z)")
-    print("   - Осі спадної камери:   X_cam = +Y_body (Праворуч), Y_cam = -X_body (Назад), Z_cam = +Z_body (Вниз)")
-    print(f"   - Тест польоту вперед:  Задано Vx={v_true[0]:.2f} м/с -> VIO оцінив Vx={v_est[0]:.2f} м/с")
-    print(f"   - Статус узгодження:    {'[PASS] ПОВНИЙ ЗБІГ' if axis_ok else '[FAIL] ПОМИЛКА ОСЕЙ'}")
-
-    print("\n2. Часова синхронізація (камера 30 Гц + IMU 200 Гц):")
-    time_ok, max_gap = test_timestamp_compatibility()
-    print(f"   - Максимальний часовий розрив кадру від найближчого IMU: {max_gap * 1e3:.2f} мс (< 5.0 мс)")
-    print(f"   - Симуляційний годинник: /clock передається через ros_gz_bridge (use_sim_time: true)")
-    print(f"   - Статус часової шкали: {'[PASS] СИНХРОННО' if time_ok else '[FAIL] ЗСУВ'}")
-
-    print("\n==============================================================")
-    all_ok = axis_ok and time_ok
-    if all_ok:
-        print(">>> ВЕРДИКТ: Осі координат та часові шкали повністю узгоджені! <<<\n")
-    else:
-        print(">>> ВЕРДИКТ: Виявлено розбіжності! <<<\n")
-
-    sys.exit(0 if all_ok else 1)
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__, epilog=(
+        "Reads mav0/{cam0,imu0}/data.csv with integer nanosecond timestamps. "
+        "The dataset must declare a shared clock. Nearest-sample distance "
+        "does not establish clock offset or sensor latency."))
+    parser.add_argument("--dataset", type=Path, default=(
+        Path(__file__).resolve().parents[1] / "recordings" / "sample_flight"))
+    parser.add_argument("--max-gap-ms", type=Decimal, default=Decimal("5"))
+    args = parser.parse_args(argv)
+    try:
+        if not args.max_gap_ms.is_finite() or args.max_gap_ms <= 0:
+            raise ValueError("--max-gap-ms must be finite and positive")
+        axis_ok, v_true, v_est = test_axis_transformation()
+        print(f"Offline axis calculation {'PASS' if axis_ok else 'FAIL'}: {v_true} -> {v_est}")
+        gap_ms = Decimal(maximum_nearest_gap_ns(args.dataset)) / 1_000_000
+        time_ok = gap_ms <= args.max_gap_ms
+        print(f"Dataset {args.dataset}: timestamp alignment {'PASS' if time_ok else 'FAIL'}, "
+              f"maximum nearest-IMU gap {gap_ms} ms (limit {args.max_gap_ms} ms)")
+        return 0 if axis_ok and time_ok else 1
+    except (OSError, ValueError, csv.Error, InvalidOperation) as exc:
+        print(f"Timestamp alignment FAIL: {exc}")
+        return 1
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

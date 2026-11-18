@@ -1,4 +1,3 @@
-cat << 'EOF' > gazebo/record_gt.py
 import rclpy
 from rclpy.node import Node
 from nav_msgs.msg import Odometry
@@ -16,7 +15,7 @@ class GroundTruthRecorder(Node):
         self.writer.writerow(['#timestamp', 'p_RS_R_x [m]', 'p_RS_R_y [m]', 'p_RS_R_z [m]', 'q_RS_w []', 'q_RS_x []', 'q_RS_y []', 'q_RS_z []'])
 
     def listener_callback(self, msg):
-        ts = int(msg.header.stamp.sec * 1e9 + msg.header.stamp.nanosec)
+        ts = msg.header.stamp.sec * 1_000_000_000 + msg.header.stamp.nanosec
         p = msg.pose.pose.position
         q = msg.pose.pose.orientation
         self.writer.writerow([ts, p.x, p.y, p.z, q.w, q.x, q.y, q.z])
@@ -35,4 +34,3 @@ def main(args=None):
 
 if __name__ == '__main__':
     main()
-EOF

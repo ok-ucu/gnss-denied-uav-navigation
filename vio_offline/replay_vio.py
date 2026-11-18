@@ -26,7 +26,6 @@ import argparse
 import collections
 import csv
 import json
-import sys
 import time
 from pathlib import Path
 
@@ -140,7 +139,7 @@ def run(args):
     out.mkdir(parents=True, exist_ok=True)
     log = Log(out / "run.log")
     _, src_info = vio_source.locate(args.vio_dir)
-    from vio_core import G, QualityMonitor, VioEKF           # noqa: E402  (team's code)
+    from vio_core import QualityMonitor, VioEKF           # noqa: E402  (team's code)
     from vio_frontend import FlowFrontend                      # noqa: E402
 
     rec = rec_io.load(args.recording, args.camera_params, timeshift=args.timeshift)
@@ -185,7 +184,7 @@ def run(args):
     last_imu_t = None
     range_buf = collections.deque(maxlen=3)
     h_range, t_range, t_range_upd = None, -1e9, -1e9
-    h_local, t_loc, last_vert = 1.0, -1e9, -1e9
+    h_local, last_vert = 1.0, -1e9
     z_init = False
     last_out = -1e9
     accepted = rejected = 0
@@ -275,7 +274,7 @@ def run(args):
             else:
                 counters["range_invalid"] += 1
         elif kind == "ap":
-            h_local, t_loc = max(-float(ap_z[i]), 0.5), t
+            h_local = max(-float(ap_z[i]), 0.5)
             if args.vertical in ("ap", "gt") or (args.vertical == "auto" and t - t_range >= RANGE_FRESH_S):
                 if not z_init:
                     ekf.x[2], ekf.x[5] = ap_z[i], ap_vz[i]
