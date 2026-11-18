@@ -15,7 +15,7 @@ import sys
 
 INTEGRATION=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(INTEGRATION))
-from launch_phase1 import validate_run_id, verified_file
+from launch_phase1 import install_runtime_world, validate_run_id, verified_file
 
 def hardware_status(identity,ogre):
     fields=dict(line.split('=',1) for line in identity.splitlines() if '=' in line)
@@ -36,7 +36,7 @@ def prepare(run_id,mode,camera_image,fcu_image,duration,perf=False):
         (run/rel).mkdir(parents=True,exist_ok=False)
     for name in ('model.sdf','model.config'):
         shutil.copyfile(verified_file('models/patched_c/iris_with_gimbal/'+name),run/'models/iris_with_gimbal'/name)
-    shutil.copyfile(verified_file('models/patched_c_world.sdf'),run/'models/world.sdf')
+    install_runtime_world(verified_file('models/patched_c_world.sdf'),run/'models/world.sdf')
     shutil.copyfile(verified_file('evidence/patched_c_gimbal_original.sdf'),run/'evidence/integrated_gimbal_original.sdf')
     # Camera-only physics exchange, no EKF/GPS/navigation-source override.
     (run/'artifacts/camera.parm').write_text('SERIAL0_PROTOCOL 2\nLOG_DISARMED 1\n')

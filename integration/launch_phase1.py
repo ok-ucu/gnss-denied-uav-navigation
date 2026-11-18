@@ -14,6 +14,7 @@ import shutil
 import subprocess
 import sys
 import uuid
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from linux_gpu.prepare_vio import FILES as VIO_FILES, PIN as VIO_PIN
 
@@ -57,6 +58,54 @@ def verified_file(relative):
     if len(data) != expected['bytes'] or hashlib.sha256(data).hexdigest() != expected['sha256']:
         raise ValueError('Historical artifact changed: ' + key)
     return path
+
+
+def _runtime_sun_flag(data):
+    """Inspect only the explicit world sun; never infer it from an image/include."""
+    root = ET.fromstring(data)
+    worlds = root.findall('world')
+    if root.tag != 'sdf' or len(worlds) != 1 or worlds[0].get('name') != 'iris_runway':
+        raise ValueError('Runtime world requires exactly one iris_runway world')
+    suns = worlds[0].findall("light[@name='sun']")
+    if len(suns) != 1 or suns[0].get('type') != 'directional':
+        raise ValueError('Runtime world requires exactly one directional sun')
+    flags = suns[0].findall('cast_shadows')
+    if len(flags) != 1 or len(flags[0]) or (flags[0].text or '').strip() not in ('true', 'false'):
+        raise ValueError('Runtime sun requires exactly one explicit true/false cast_shadows')
+    return flags[0].text.strip()
+
+
+def verify_runtime_world(path):
+    """Rendering prerequisite only; grants no navigation/runtime authorization."""
+    path = Path(path)
+    if path.is_symlink() or not path.is_file():
+        raise ValueError('Missing/nonregular active runtime world: ' + str(path))
+    data = path.read_bytes()
+    if _runtime_sun_flag(data) != 'false':
+        raise ValueError('Active runtime sun still casts shadows; refuse Gazebo startup')
+    return hashlib.sha256(data).hexdigest()
+
+
+def install_runtime_world(source, destination):
+    """Derive a NEW world from verified historical bytes; preserve their manifest.
+
+    Only the explicit directional sun's true token is replaced. Do not
+    reserialize XML or change physics, models, camera configuration or comments.
+    """
+    source, destination = Path(source), Path(destination)
+    data = source.read_bytes()
+    if _runtime_sun_flag(data) != 'true':
+        raise ValueError('Historical runtime template must have the expected true sun flag')
+    pattern = (rb'''(<light\b(?=[^>]*\bname\s*=\s*["']sun["'])[^>]*>'''
+               rb'''(?:(?!</light\s*>).)*?<cast_shadows>\s*)true(\s*</cast_shadows>)''')
+    result, count = re.subn(pattern, rb'\g<1>false\g<2>', data, flags=re.S)
+    if count != 1 or _runtime_sun_flag(result) != 'false':
+        raise ValueError('Runtime sun patch must make exactly one verified replacement')
+    # Exclusive creation also rejects an existing file, symlink or same source.
+    with destination.open('xb') as output:
+        output.write(result)
+    verify_runtime_world(destination)
+    return hashlib.sha256(result).hexdigest()
 
 
 def main():
@@ -124,7 +173,7 @@ def main():
         (run / subdir).mkdir(parents=True, exist_ok=True)
     for filename in ('model.sdf', 'model.config'):
         shutil.copyfile(files['models/patched_c/iris_with_gimbal/' + filename], run / 'models/iris_with_gimbal' / filename)
-    shutil.copyfile(files['models/patched_c_world.sdf'], run / 'models/world.sdf')
+    install_runtime_world(files['models/patched_c_world.sdf'], run / 'models/world.sdf')
     shutil.copyfile(files['evidence/patched_c_gimbal_original.sdf'], run / 'evidence/integrated_gimbal_original.sdf')
     shutil.copy2(firmware,run/'artifacts/arducopter')
     (run / 'artifacts/run_identity.json').write_text(json.dumps(dict(
