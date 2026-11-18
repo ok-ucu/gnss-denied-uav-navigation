@@ -1,0 +1,6 @@
+# Integration-only transport setup, separate from Person 1's exact parameter copy.
+SERIAL0_PROTOCOL 2
+AHRS_EKF_TYPE 3
+EK3_ENABLE 1
+# Pinned ArduCopter 4.4.4 uses GPS_TYPE, not the newer GPS1_TYPE name.
+GPS_TYPE 0

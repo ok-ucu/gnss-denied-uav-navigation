@@ -1,0 +1,336 @@
+{
+  "binary": "integration/sitl_runs/20261104T001121Z-7/logs/00000001.BIN",
+  "dataflash_type_counts": {
+    "FMT": 174,
+    "PARM": 1352,
+    "UNIT": 36,
+    "MULT": 15,
+    "FMTU": 174,
+    "MSG": 19,
+    "VER": 1,
+    "MODE": 1,
+    "ORGN": 3,
+    "ATT": 51109,
+    "RATE": 51109,
+    "PIDR": 51109,
+    "PIDP": 51109,
+    "PIDY": 51109,
+    "PIDA": 51108,
+    "SIM2": 51108,
+    "ESC": 51108,
+    "XKF4": 6388,
+    "XKF1": 6388,
+    "XKF2": 6388,
+    "XKF3": 6388,
+    "XKF5": 3194,
+    "XKFS": 6388,
+    "XKQ": 6388,
+    "AHR2": 3194,
+    "SIM": 3194,
+    "IMU": 6388,
+    "BAT": 1277,
+    "MAG": 3831,
+    "BARO": 2554,
+    "CTUN": 1277,
+    "RCIN": 1277,
+    "RCOU": 1277,
+    "RCO2": 1277,
+    "VIBE": 2554,
+    "CTRL": 1277,
+    "XKV1": 246,
+    "XKV2": 246,
+    "XKT": 52,
+    "XKTV": 503,
+    "DU32": 128,
+    "PM": 13,
+    "MAV": 127,
+    "VISP": 1479,
+    "VISV": 1479,
+    "EV": 1,
+    "SRTL": 1,
+    "POS": 2196,
+    "DSF": 127,
+    "TERR": 88,
+    "ERR": 6
+  },
+  "bin_to_unix_offset_s": 1793751081.4319382,
+  "matched_anchor_count": 1200,
+  "anchor_offset_min_s": 1793751081.41918,
+  "anchor_offset_max_s": 1793751081.447497,
+  "guard_s": 0.25,
+  "phases": [
+    {
+      "phase": "normal",
+      "sent_pairs": 400,
+      "visp_records": 400,
+      "visv_records": 400,
+      "backend_pose_ignored": 0,
+      "backend_speed_ignored": 0,
+      "ekf_accepted_measurements": null,
+      "ekf_rejected_measurements": null,
+      "pose_error_values": [
+        0.2
+      ],
+      "velocity_error_values": [
+        0.1
+      ],
+      "core": 0,
+      "xkf3_samples": 487,
+      "xkf4_samples": 487,
+      "position_innovation_xy_rms_m": 0.039992299053353955,
+      "velocity_innovation_xy_rms_m_s": 0.2139738416912951,
+      "sp_median": 0.01,
+      "sv_median": 0.23,
+      "sampled_position_gate_above_one": 0,
+      "sampled_velocity_gate_above_one": 0,
+      "position_timeout_samples": 0,
+      "velocity_timeout_samples": 0,
+      "primary_values": [
+        0
+      ],
+      "initialized_samples": 487,
+      "absolute_position_valid_samples": 487,
+      "fault_values": [
+        0
+      ],
+      "timeout_values": [
+        48
+      ],
+      "solution_status_values": [
+        74559
+      ],
+      "pnn_median_m2": 0.0009847254259511828,
+      "pee_median_m2": 0.0009847290348261595,
+      "estimated_position_xy_rms_m": 0.4199330529740794
+    },
+    {
+      "phase": "inflated",
+      "sent_pairs": 400,
+      "visp_records": 400,
+      "visv_records": 400,
+      "backend_pose_ignored": 0,
+      "backend_speed_ignored": 0,
+      "ekf_accepted_measurements": null,
+      "ekf_rejected_measurements": null,
+      "pose_error_values": [
+        3.634241
+      ],
+      "velocity_error_values": [
+        0.1
+      ],
+      "core": 0,
+      "xkf3_samples": 487,
+      "xkf4_samples": 487,
+      "position_innovation_xy_rms_m": 0.030502297351792475,
+      "velocity_innovation_xy_rms_m_s": 0.21339583487233865,
+      "sp_median": 0.0,
+      "sv_median": 0.24,
+      "sampled_position_gate_above_one": 0,
+      "sampled_velocity_gate_above_one": 0,
+      "position_timeout_samples": 0,
+      "velocity_timeout_samples": 0,
+      "primary_values": [
+        0
+      ],
+      "initialized_samples": 487,
+      "absolute_position_valid_samples": 487,
+      "fault_values": [
+        0
+      ],
+      "timeout_values": [
+        48
+      ],
+      "solution_status_values": [
+        74559
+      ],
+      "pnn_median_m2": 0.005783725995570421,
+      "pee_median_m2": 0.005783724132925272,
+      "estimated_position_xy_rms_m": 0.4258818802060087
+    },
+    {
+      "phase": "dropout",
+      "sent_pairs": 0,
+      "visp_records": 0,
+      "visv_records": 0,
+      "backend_pose_ignored": 0,
+      "backend_speed_ignored": 0,
+      "ekf_accepted_measurements": null,
+      "ekf_rejected_measurements": null,
+      "pose_error_values": [],
+      "velocity_error_values": [],
+      "core": 0,
+      "xkf3_samples": 287,
+      "xkf4_samples": 287,
+      "position_innovation_xy_rms_m": null,
+      "velocity_innovation_xy_rms_m_s": null,
+      "sp_median": 0.0,
+      "sv_median": 0.17,
+      "sampled_position_gate_above_one": null,
+      "sampled_velocity_gate_above_one": null,
+      "position_timeout_samples": 119,
+      "velocity_timeout_samples": 119,
+      "primary_values": [
+        0
+      ],
+      "initialized_samples": 287,
+      "absolute_position_valid_samples": 168,
+      "fault_values": [
+        0
+      ],
+      "timeout_values": [
+        48,
+        51
+      ],
+      "solution_status_values": [
+        65575,
+        66367,
+        74559
+      ],
+      "pnn_median_m2": 0.8086702823638916,
+      "pee_median_m2": 0.8124586939811707,
+      "estimated_position_xy_rms_m": 9.375570164013707
+    },
+    {
+      "phase": "recovery",
+      "sent_pairs": 400,
+      "visp_records": 400,
+      "visv_records": 400,
+      "backend_pose_ignored": 0,
+      "backend_speed_ignored": 0,
+      "ekf_accepted_measurements": null,
+      "ekf_rejected_measurements": null,
+      "pose_error_values": [
+        0.2
+      ],
+      "velocity_error_values": [
+        0.1
+      ],
+      "core": 0,
+      "xkf3_samples": 487,
+      "xkf4_samples": 487,
+      "position_innovation_xy_rms_m": 0.011937551401783613,
+      "velocity_innovation_xy_rms_m_s": 0.20993252069261015,
+      "sp_median": 0.01,
+      "sv_median": 0.22,
+      "sampled_position_gate_above_one": 0,
+      "sampled_velocity_gate_above_one": 0,
+      "position_timeout_samples": 0,
+      "velocity_timeout_samples": 0,
+      "primary_values": [
+        0
+      ],
+      "initialized_samples": 487,
+      "absolute_position_valid_samples": 487,
+      "fault_values": [
+        0
+      ],
+      "timeout_values": [
+        48
+      ],
+      "solution_status_values": [
+        74559
+      ],
+      "pnn_median_m2": 0.000994920206721872,
+      "pee_median_m2": 0.0009949306841008365,
+      "estimated_position_xy_rms_m": 0.4151720504374997
+    }
+  ],
+  "messages": [
+    {
+      "mavpackettype": "MSG",
+      "TimeUS": 171687131,
+      "Message": "ArduCopter V4.4.4 (9279df61)"
+    },
+    {
+      "mavpackettype": "MSG",
+      "TimeUS": 171687131,
+      "Message": "28d55b3766c946a1bcee35d870bc91f4"
+    },
+    {
+      "mavpackettype": "MSG",
+      "TimeUS": 171687131,
+      "Message": "Param space used: 285/4096"
+    },
+    {
+      "mavpackettype": "MSG",
+      "TimeUS": 171687131,
+      "Message": "RC Protocol: SITL"
+    },
+    {
+      "mavpackettype": "MSG",
+      "TimeUS": 171687131,
+      "Message": "New mission"
+    },
+    {
+      "mavpackettype": "MSG",
+      "TimeUS": 171687131,
+      "Message": "New rally"
+    },
+    {
+      "mavpackettype": "MSG",
+      "TimeUS": 171687131,
+      "Message": "New fence"
+    },
+    {
+      "mavpackettype": "MSG",
+      "TimeUS": 171687131,
+      "Message": "Frame: QUAD/PLUS"
+    },
+    {
+      "mavpackettype": "MSG",
+      "TimeUS": 172644248,
+      "Message": "EKF3 IMU0 is using external nav data"
+    },
+    {
+      "mavpackettype": "MSG",
+      "TimeUS": 172644248,
+      "Message": "EKF3 IMU0 initial pos NED = 0.0,-0.0,0.0 (m)"
+    },
+    {
+      "mavpackettype": "MSG",
+      "TimeUS": 172644248,
+      "Message": "EKF3 IMU0 initial vel NED = 0.0,0.0,0.0 (m/s)"
+    },
+    {
+      "mavpackettype": "MSG",
+      "TimeUS": 172644248,
+      "Message": "EKF3 IMU1 is using external nav data"
+    },
+    {
+      "mavpackettype": "MSG",
+      "TimeUS": 172644248,
+      "Message": "EKF3 IMU1 initial pos NED = 0.0,-0.0,0.0 (m)"
+    },
+    {
+      "mavpackettype": "MSG",
+      "TimeUS": 172644248,
+      "Message": "EKF3 IMU1 initial vel NED = 0.0,0.0,0.0 (m/s)"
+    },
+    {
+      "mavpackettype": "MSG",
+      "TimeUS": 234477005,
+      "Message": "EKF variance"
+    },
+    {
+      "mavpackettype": "MSG",
+      "TimeUS": 266476700,
+      "Message": "EKF variance"
+    },
+    {
+      "mavpackettype": "MSG",
+      "TimeUS": 273527212,
+      "Message": "EKF3 IMU1 stopped aiding"
+    },
+    {
+      "mavpackettype": "MSG",
+      "TimeUS": 273534709,
+      "Message": "EKF3 IMU0 stopped aiding"
+    },
+    {
+      "mavpackettype": "MSG",
+      "TimeUS": 277277378,
+      "Message": "PreArm: VisOdom: not healthy"
+    }
+  ],
+  "limitation": "EKF accepted/rejected per-measurement counters not exposed; Ign is backend only"
+}

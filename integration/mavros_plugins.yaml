@@ -1,0 +1,13 @@
+# Based on upstream ROS 2 APM denylist; vision_speed_estimate deliberately enabled.
+/**:
+  ros__parameters:
+    plugin_denylist:
+      - actuator_control
+      - ftp
+      - hil
+      - altitude
+      - debug_value
+      - image_pub
+      - px4flow
+      - vibration
+      - wheel_odometry

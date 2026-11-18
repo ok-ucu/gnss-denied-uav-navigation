@@ -1,0 +1,431 @@
+sitl-1  | Setting SIM_SPEEDUP=1.000000
+sitl-1  | Suggested EK3_DRAG_BCOEF_* = 16.288, EK3_DRAG_MCOEF = 0.209
+sitl-1  | Home: -35.363261 149.165230 alt=584.000000m hdg=0.000000
+sitl-1  | Starting sketch 'ArduCopter'
+sitl-1  | Starting SITL input
+sitl-1  | Using Irlock at port : 9005
+sitl-1  | bind port 5760 for 0
+sitl-1  | Serial port 0 on TCP port 5760
+sitl-1  | Waiting for connection ....
+sitl-1  | Connection on serial port 5760
+sitl-1  | Loaded defaults from /home/docker/ardupilot/Tools/autotest/default_params/copter.parm,/integration/sitl_ext_nav.parm,/integration/sitl_transport.parm
+sitl-1  | Smoothing reset at 0.001
+sitl-1  | bind port 5762 for 2
+sitl-1  | Serial port 2 on TCP port 5762
+sitl-1  | bind port 5763 for 3
+sitl-1  | Serial port 3 on TCP port 5763
+sitl-1  | validate_structures:498: Validating structures
+sitl-1  | Loaded defaults from /home/docker/ardupilot/Tools/autotest/default_params/copter.parm,/integration/sitl_ext_nav.parm,/integration/sitl_transport.parm
+sitl-1  | Connect tcp:127.0.0.1:5760 source_system=254
+sitl-1  | Log Directory: /results/20261104T000426Z-7
+sitl-1  | Telemetry log: /results/20261104T000426Z-7/mav.tlog
+sitl-1  | Waiting for heartbeat from tcp:127.0.0.1:5760
+sitl-1  | Detected vehicle 1:1 on link 0
+sitl-1  | online system 1
+sitl-1  | STABILIZE> Mode STABILIZE
+sitl-1  | AP: Barometer 1 calibration complete
+sitl-1  | AP: Barometer 2 calibration complete
+sitl-1  | Init Gyro**AP: ArduCopter V4.4.4 (9279df61)
+sitl-1  | AP: 28d55b3766c946a1bcee35d870bc91f4
+sitl-1  | AP: Frame: QUAD/PLUS
+sitl-1  | 
+sitl-1  | AP: ArduPilot Ready
+sitl-1  | AP: AHRS: DCM active
+sitl-1  | AP: RC7: SaveWaypoint LOW
+sitl-1  | Received 1348 parameters (ftp)
+sitl-1  | Saved 1348 parameters to /results/20261104T000426Z-7/mav.parm
+sitl-1  | Saved 1348 defaults to /results/20261104T000426Z-7/defaults.parm
+sitl-1  | AP: EKF3 IMU0 initialised
+sitl-1  | AP: EKF3 IMU1 initialised
+sitl-1  | AP: AHRS: EKF3 active
+sitl-1  | AP: EKF3 IMU0 tilt alignment complete
+sitl-1  | AP: EKF3 IMU1 tilt alignment complete
+sitl-1  | AP: EKF3 IMU0 MAG0 initial yaw alignment complete
+sitl-1  | AP: EKF3 IMU1 MAG0 initial yaw alignment complete
+sitl-1  | AP: GPS 1: detected as u-blox at 230400 baud
+sitl-1  | Failed to download /SRTM3/filelist_python : 'utf-8' codec can't decode byte 0x80 in position 0: invalid start byte
+sitl-1  | fence present
+sitl-1  | Flight battery 100 percent
+sitl-1  | AP: EKF3 IMU0 origin set
+sitl-1  | AP: EKF3 IMU1 origin set
+sitl-1  | AP: Field Elevation Set: 584m
+sitl-1  | AP: PreArm: VisOdom: not healthy
+sitl-1  | Exitting
+sitl-1  | Unloading module link
+sitl-1  | Unloading module log
+sitl-1  | Unloading module signing
+sitl-1  | Unloading module wp
+sitl-1  | Unloading module rally
+sitl-1  | Unloading module fence
+sitl-1  | Unloading module ftp
+sitl-1  | Unloading module param
+sitl-1  | Unloading module relay
+sitl-1  | Unloading module tuneopt
+sitl-1  | Unloading module arm
+sitl-1  | Unloading module mode
+sitl-1  | Unloading module calibration
+sitl-1  | Unloading module rc
+sitl-1  | Unloading module auxopt
+sitl-1  | Unloading module misc
+sitl-1  | Unloading module cmdlong
+sitl-1  | Unloading module battery
+sitl-1  | Unloading module terrain
+sitl-1  | Unloading module output
+sitl-1  | Unloading module adsb
+sitl-1  | Unloading module layout
+sitl-1  | Exception in thread log_writer:
+sitl-1  | Traceback (most recent call last):
+sitl-1  |   File "/usr/lib/python3.10/threading.py", line 1016, in _bootstrap_inner
+sitl-1  | bind port 5760 for 0
+sitl-1  | Setting SIM_SPEEDUP=1.000000
+sitl-1  | Suggested EK3_DRAG_BCOEF_* = 16.288, EK3_DRAG_MCOEF = 0.209
+sitl-1  | Home: -35.363261 149.165230 alt=584.000000m hdg=0.000000
+sitl-1  | Starting sketch 'ArduCopter'
+sitl-1  | Starting SITL input
+sitl-1  | Using Irlock at port : 9005
+sitl-1  | Serial port 0 on TCP port 5760
+sitl-1  | Waiting for connection ....
+sitl-1  | Connection on serial port 5760
+sitl-1  | Loaded defaults from /home/docker/ardupilot/Tools/autotest/default_params/copter.parm,/integration/sitl_ext_nav.parm,/integration/sitl_transport.parm
+sitl-1  | Smoothing reset at 0.001
+sitl-1  | bind port 5762 for 2
+sitl-1  | Serial port 2 on TCP port 5762
+sitl-1  | bind port 5763 for 3
+sitl-1  | Serial port 3 on TCP port 5763
+sitl-1  | validate_structures:498: Validating structures
+sitl-1  | Loaded defaults from /home/docker/ardupilot/Tools/autotest/default_params/copter.parm,/integration/sitl_ext_nav.parm,/integration/sitl_transport.parm
+sitl-1  | Connect tcp:127.0.0.1:5760 source_system=254
+sitl-1  | Log Directory: /results/20261104T000526Z-7
+sitl-1  | Telemetry log: /results/20261104T000526Z-7/mav.tlog
+sitl-1  | Waiting for heartbeat from tcp:127.0.0.1:5760
+sitl-1  | AP: Calibrating barometer
+sitl-1  | Detected vehicle 1:1 on link 0
+sitl-1  | online system 1
+sitl-1  | STABILIZE> Mode STABILIZE
+sitl-1  | AP: ArduCopter V4.4.4 (9279df61)
+sitl-1  | AP: 28d55b3766c946a1bcee35d870bc91f4
+sitl-1  | AP: Frame: QUAD/PLUS
+sitl-1  | AP: Barometer 1 calibration complete
+sitl-1  | AP: Barometer 2 calibration complete
+sitl-1  | Init Gyro**Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | 
+sitl-1  | AP: ArduPilot Ready
+sitl-1  | AP: AHRS: DCM active
+sitl-1  | Received 1348 parameters (ftp)
+sitl-1  | Saved 1348 parameters to /results/20261104T000526Z-7/mav.parm
+sitl-1  | Saved 1348 defaults to /results/20261104T000526Z-7/defaults.parm
+sitl-1  | AP: RC7: SaveWaypoint LOW
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | AP: EKF3 IMU0 initialised
+sitl-1  | AP: EKF3 IMU1 initialised
+sitl-1  | AP: AHRS: EKF3 active
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | AP: EKF3 IMU0 tilt alignment complete
+sitl-1  | AP: EKF3 IMU1 tilt alignment complete
+sitl-1  | AP: EKF3 IMU0 MAG0 initial yaw alignment complete
+sitl-1  | AP: EKF3 IMU1 MAG0 initial yaw alignment complete
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | fence present
+sitl-1  | Flight battery 100 percent
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | AP: PreArm: VisOdom: not healthy
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | AP: PreArm: VisOdom: not healthy
+sitl-1  | Flight battery 100 percent
+sitl-1  | AP: PreArm: VisOdom: not healthy
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | AP: EKF3 IMU1 is using external nav data
+sitl-1  | AP: EKF3 IMU1 initial pos NED = 0.0,0.0,0.0 (m)
+sitl-1  | AP: EKF3 IMU1 initial vel NED = 0.0,0.0,0.0 (m/s)
+sitl-1  | AP: EKF3 IMU0 is using external nav data
+sitl-1  | AP: EKF3 IMU0 initial pos NED = 0.0,0.0,0.0 (m)
+sitl-1  | AP: EKF3 IMU0 initial vel NED = 0.0,0.0,0.0 (m/s)
+sitl-1  | AP: EKF3 IMU1 stopped aiding
+sitl-1  | AP: EKF3 IMU0 stopped aiding
+sitl-1  | AP: PreArm: VisOdom: not healthy
+sitl-1  | Exitting
+sitl-1  | EOF on TCP socket
+sitl-1  | Attempting reconnect
+sitl-1  | [Errno 111] Connection refused sleeping
+sitl-1  | Unloading module link
+sitl-1  | Unloading module log
+sitl-1  | Unloading module signing
+sitl-1  | Unloading module wp
+sitl-1  | Unloading module rally
+sitl-1  | Unloading module fence
+sitl-1  | Unloading module ftp
+sitl-1  | Unloading module param
+sitl-1  | Unloading module relay
+sitl-1  | Unloading module tuneopt
+sitl-1  | Unloading module arm
+sitl-1  | Unloading module mode
+sitl-1  | Unloading module calibration
+sitl-1  | Unloading module rc
+sitl-1  | Unloading module auxopt
+sitl-1  | Unloading module misc
+sitl-1  | Unloading module cmdlong
+sitl-1  | Unloading module battery
+sitl-1  | Unloading module terrain
+sitl-1  | Unloading module output
+sitl-1  | Unloading module adsb
+sitl-1  | Unloading module layout
+sitl-1  | Exception in thread log_writer:
+sitl-1  | Traceback (most recent call last):
+sitl-1  |   File "/usr/lib/python3.10/threading.py", line 1016, in _bootstrap_inner
+sitl-1  | Setting SIM_SPEEDUP=1.000000
+sitl-1  | Suggested EK3_DRAG_BCOEF_* = 16.288, EK3_DRAG_MCOEF = 0.209
+sitl-1  | Home: -35.363261 149.165230 alt=584.000000m hdg=0.000000
+sitl-1  | Starting sketch 'ArduCopter'
+sitl-1  | Starting SITL input
+sitl-1  | Using Irlock at port : 9005
+sitl-1  | bind port 5760 for 0
+sitl-1  | Serial port 0 on TCP port 5760
+sitl-1  | Waiting for connection ....
+sitl-1  | Connection on serial port 5760
+sitl-1  | Loaded defaults from /home/docker/ardupilot/Tools/autotest/default_params/copter.parm,/integration/sitl_ext_nav.parm,/integration/sitl_transport.parm
+sitl-1  | Smoothing reset at 0.001
+sitl-1  | bind port 5762 for 2
+sitl-1  | Serial port 2 on TCP port 5762
+sitl-1  | bind port 5763 for 3
+sitl-1  | Serial port 3 on TCP port 5763
+sitl-1  | validate_structures:498: Validating structures
+sitl-1  | Loaded defaults from /home/docker/ardupilot/Tools/autotest/default_params/copter.parm,/integration/sitl_ext_nav.parm,/integration/sitl_transport.parm
+sitl-1  | Connect tcp:127.0.0.1:5760 source_system=254
+sitl-1  | Log Directory: /results/20261104T001121Z-7
+sitl-1  | Telemetry log: /results/20261104T001121Z-7/mav.tlog
+sitl-1  | Waiting for heartbeat from tcp:127.0.0.1:5760
+sitl-1  | AP: Calibrating barometer
+sitl-1  | Detected vehicle 1:1 on link 0
+sitl-1  | online system 1
+sitl-1  | STABILIZE> Mode STABILIZE
+sitl-1  | AP: ArduCopter V4.4.4 (9279df61)
+sitl-1  | AP: 28d55b3766c946a1bcee35d870bc91f4
+sitl-1  | AP: Frame: QUAD/PLUS
+sitl-1  | AP: Barometer 1 calibration complete
+sitl-1  | AP: Barometer 2 calibration complete
+sitl-1  | Init Gyro**
+sitl-1  | AP: ArduPilot Ready
+sitl-1  | AP: AHRS: DCM active
+sitl-1  | Received 1348 parameters (ftp)
+sitl-1  | Saved 1348 parameters to /results/20261104T001121Z-7/mav.parm
+sitl-1  | Saved 1348 defaults to /results/20261104T001121Z-7/defaults.parm
+sitl-1  | AP: RC7: SaveWaypoint LOW
+sitl-1  | AP: EKF3 IMU0 initialised
+sitl-1  | AP: EKF3 IMU1 initialised
+sitl-1  | AP: AHRS: EKF3 active
+sitl-1  | AP: EKF3 IMU0 tilt alignment complete
+sitl-1  | AP: EKF3 IMU1 tilt alignment complete
+sitl-1  | AP: EKF3 IMU0 MAG0 initial yaw alignment complete
+sitl-1  | AP: EKF3 IMU1 MAG0 initial yaw alignment complete
+sitl-1  | fence present
+sitl-1  | Flight battery 100 percent
+sitl-1  | AP: PreArm: VisOdom: not healthy
+sitl-1  | AP: PreArm: VisOdom: not healthy
+sitl-1  | Flight battery 100 percent
+sitl-1  | AP: PreArm: VisOdom: not healthy
+sitl-1  | AP: PreArm: VisOdom: not healthy
+sitl-1  | Flight battery 100 percent
+sitl-1  | AP: PreArm: VisOdom: not healthy
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | Got COMMAND_ACK: SET_MESSAGE_INTERVAL: ACCEPTED
+sitl-1  | AP: EKF3 IMU0 origin set
+sitl-1  | AP: EKF3 IMU1 origin set
+sitl-1  | AP: Field Elevation Set: 584m
+sitl-1  | AP: EKF3 IMU0 is using external nav data
+sitl-1  | AP: EKF3 IMU0 initial pos NED = 0.0,-0.0,0.0 (m)
+sitl-1  | AP: EKF3 IMU0 initial vel NED = 0.0,0.0,0.0 (m/s)
+sitl-1  | AP: EKF3 IMU1 is using external nav data
+sitl-1  | AP: EKF3 IMU1 initial pos NED = 0.0,-0.0,0.0 (m)
+sitl-1  | AP: EKF3 IMU1 initial vel NED = 0.0,0.0,0.0 (m/s)
+sitl-1  | Flight battery 100 percent
+sitl-1  | AP: EKF variance
+sitl-1  | Flight battery 100 percent
+sitl-1  | AP: EKF variance
+sitl-1  | AP: EKF3 IMU1 stopped aiding
+sitl-1  | AP: EKF3 IMU0 stopped aiding
+sitl-1  | AP: PreArm: VisOdom: not healthy
+sitl-1  | Exitting
+sitl-1  | EOF on TCP socket
+sitl-1  | Attempting reconnect
+sitl-1  | [Errno 111] Connection refused sleeping
+sitl-1  | Unloading module link
+sitl-1  | Unloading module log
+sitl-1  | Unloading module signing
+sitl-1  | Unloading module wp
+sitl-1  | Unloading module rally
+sitl-1  | Unloading module fence
+sitl-1  | Unloading module ftp
+sitl-1  | Unloading module param
+sitl-1  | Unloading module relay
+sitl-1  | Unloading module tuneopt
+sitl-1  | Unloading module arm
+sitl-1  | Unloading module mode
+sitl-1  | Unloading module calibration
+sitl-1  | Unloading module rc
+sitl-1  | Unloading module auxopt
+sitl-1  | Unloading module misc
+sitl-1  | Unloading module cmdlong
+sitl-1  | Unloading module battery
+sitl-1  | Unloading module terrain
+sitl-1  | Unloading module output
+sitl-1  | Unloading module adsb
+sitl-1  | Unloading module layout
+sitl-1  | Exception in thread log_writer:
+sitl-1  | Traceback (most recent call last):
+sitl-1  |   File "/usr/lib/python3.10/threading.py", line 1016, in _bootstrap_inner
+sitl-1  |     self.run()
+sitl-1  |   File "/usr/lib/python3.10/threading.py", line 953, in run
+sitl-1  |     self._target(*self._args, **self._kwargs)
+sitl-1  |   File "/home/docker/.local/bin/mavproxy.py", line 901, in log_writer

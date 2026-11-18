@@ -1,0 +1,171 @@
+FILE libraries/GCS_MAVLink/GCS_Common.cpp commit 9279df6191a772c098b2e4797c95ac954f258d88
+3522: void GCS_MAVLINK::handle_common_vision_position_estimate_data(const uint64_t usec,
+3523:                                                               const float x,
+3524:                                                               const float y,
+3525:                                                               const float z,
+3526:                                                               const float roll,
+3527:                                                               const float pitch,
+3528:                                                               const float yaw,
+3529:                                                               const float covariance[21],
+3530:                                                               const uint8_t reset_counter,
+3531:                                                               const uint16_t payload_size)
+3532: {
+3533:     float posErr = 0;
+3534:     float angErr = 0;
+3535:     // correct offboard timestamp to be in local ms since boot
+3536:     uint32_t timestamp_ms = correct_offboard_timestamp_usec_to_ms(usec, payload_size);
+3537: 
+3538:     AP_VisualOdom *visual_odom = AP::visualodom();
+3539:     if (visual_odom == nullptr) {
+3540:         return;
+3541:     }
+3542: 
+3543:     if (!isnan(covariance[0])) {
+3544:         posErr = cbrtf(sq(covariance[0])+sq(covariance[6])+sq(covariance[11]));
+3545:         angErr = cbrtf(sq(covariance[15])+sq(covariance[18])+sq(covariance[20]));
+3546:     }
+3547: 
+3548:     visual_odom->handle_vision_position_estimate(usec, timestamp_ms, x, y, z, roll, pitch, yaw, posErr, angErr, reset_counter);
+3549: }
+3550: 
+3551: void GCS_MAVLINK::handle_att_pos_mocap(const mavlink_message_t &msg)
+3552: {
+3553:     mavlink_att_pos_mocap_t m;
+3554:     mavlink_msg_att_pos_mocap_decode(&msg, &m);
+3555: 
+3556:     // correct offboard timestamp to be in local ms since boot
+3557:     uint32_t timestamp_ms = correct_offboard_timestamp_usec_to_ms(m.time_usec, PAYLOAD_SIZE(chan, ATT_POS_MOCAP));
+3558:    
+3559:     AP_VisualOdom *visual_odom = AP::visualodom();
+3560:     if (visual_odom == nullptr) {
+3561:         return;
+3562:     }
+3563:     // note: att_pos_mocap does not include reset counter
+3564:     visual_odom->handle_vision_position_estimate(m.time_usec, timestamp_ms, m.x, m.y, m.z, m.q, 0, 0, 0);
+3565: }
+3566: 
+3567: void GCS_MAVLINK::handle_vision_speed_estimate(const mavlink_message_t &msg)
+3568: {
+3569:     AP_VisualOdom *visual_odom = AP::visualodom();
+3570:     if (visual_odom == nullptr) {
+3571:         return;
+3572:     }
+3573:     mavlink_vision_speed_estimate_t m;
+3574:     mavlink_msg_vision_speed_estimate_decode(&msg, &m);
+3575:     const Vector3f vel = {m.x, m.y, m.z};
+3576:     uint32_t timestamp_ms = correct_offboard_timestamp_usec_to_ms(m.usec, PAYLOAD_SIZE(chan, VISION_SPEED_ESTIMATE));
+3577:     visual_odom->handle_vision_speed_estimate(m.usec, timestamp_ms, vel, m.reset_counter);
+3578: }
+FILE libraries/AP_VisualOdom/AP_VisualOdom_MAV.cpp commit 9279df6191a772c098b2e4797c95ac954f258d88
+26: // consume vision position estimate data and send to EKF. distances in meters
+27: void AP_VisualOdom_MAV::handle_vision_position_estimate(uint64_t remote_time_us, uint32_t time_ms, float x, float y, float z, const Quaternion &attitude, float posErr, float angErr, uint8_t reset_counter)
+28: {
+29:     const float scale_factor =  _frontend.get_pos_scale();
+30:     Vector3f pos{x * scale_factor, y * scale_factor, z * scale_factor};
+31: 
+32:     posErr = constrain_float(posErr, _frontend.get_pos_noise(), 100.0f);
+33:     angErr = constrain_float(angErr, _frontend.get_yaw_noise(), 1.5f);
+34:     // send attitude and position to EKF
+35:     AP::ahrs().writeExtNavData(pos, attitude, posErr, angErr, time_ms, _frontend.get_delay_ms(), get_reset_timestamp_ms(reset_counter));
+36: 
+37:     // calculate euler orientation for logging
+38:     float roll;
+39:     float pitch;
+40:     float yaw;
+41:     attitude.to_euler(roll, pitch, yaw);
+42: 
+43:     // log sensor data
+44:     Write_VisualPosition(remote_time_us, time_ms, pos.x, pos.y, pos.z, degrees(roll), degrees(pitch), degrees(yaw), posErr, angErr, reset_counter, false);
+45: 
+46:     // record time for health monitoring
+47:     _last_update_ms = AP_HAL::millis();
+48: }
+49: 
+50: void AP_VisualOdom_MAV::handle_vision_speed_estimate(uint64_t remote_time_us, uint32_t time_ms, const Vector3f &vel, uint8_t reset_counter)
+51: {
+52:     // send velocity to EKF
+53:     AP::ahrs().writeExtNavVelData(vel, _frontend.get_vel_noise(), time_ms, _frontend.get_delay_ms());
+54: 
+55:     // record time for health monitoring
+56:     _last_update_ms = AP_HAL::millis();
+57: 
+58:     Write_VisualVelocity(remote_time_us, time_ms, vel, reset_counter, false);
+FILE libraries/AP_NavEKF3/AP_NavEKF3_PosVelFusion.cpp commit 9279df6191a772c098b2e4797c95ac954f258d88
+645:         } else {
+646:             if (gpsSpdAccuracy > 0.0f) {
+647:                 // use GPS receivers reported speed accuracy if available and floor at value set by GPS velocity noise parameter
+648:                 R_OBS[0] = sq(constrain_ftype(gpsSpdAccuracy, frontend->_gpsHorizVelNoise, 50.0f));
+649:                 R_OBS[2] = sq(constrain_ftype(gpsSpdAccuracy, frontend->_gpsVertVelNoise, 50.0f));
+650: #if EK3_FEATURE_EXTERNAL_NAV
+651:             } else if (extNavVelToFuse) {
+652:                 R_OBS[2] = R_OBS[0] = sq(constrain_ftype(extNavVelDelayed.err, 0.05f, 5.0f));
+653: #endif
+654:             } else {
+655:                 // calculate additional error in GPS velocity caused by manoeuvring
+656:                 R_OBS[0] = sq(constrain_ftype(frontend->_gpsHorizVelNoise, 0.05f, 5.0f)) + sq(frontend->gpsNEVelVarAccScale * accNavMag);
+657:                 R_OBS[2] = sq(constrain_ftype(frontend->_gpsVertVelNoise,  0.05f, 5.0f)) + sq(frontend->gpsDVelVarAccScale  * accNavMag);
+658:             }
+659:             R_OBS[1] = R_OBS[0];
+660:             // Use GPS reported position accuracy if available and floor at value set by GPS position noise parameter
+661:             if (gpsPosAccuracy > 0.0f) {
+662:                 R_OBS[3] = sq(constrain_ftype(gpsPosAccuracy, frontend->_gpsHorizPosNoise, 100.0f));
+663: #if EK3_FEATURE_EXTERNAL_NAV
+664:             } else if (extNavUsedForPos) {
+665:                 R_OBS[3] = sq(constrain_ftype(extNavDataDelayed.posErr, 0.01f, 10.0f));
+666: #endif
+667:             } else {
+668:                 R_OBS[3] = sq(constrain_ftype(frontend->_gpsHorizPosNoise, 0.1f, 10.0f)) + sq(posErr);
+669:             }
+670:             R_OBS[4] = R_OBS[3];
+671:             // For data integrity checks we use the same measurement variances as used to calculate the Kalman gains for all measurements except GPS horizontal velocity
+672:             // For horizontal GPS velocity we don't want the acceptance radius to increase with reported GPS accuracy so we use a value based on best GPS performance
+673:             // plus a margin for manoeuvres. It is better to reject GPS horizontal velocity errors early
+674:             ftype obs_data_chk;
+675: #if EK3_FEATURE_EXTERNAL_NAV
+676:             if (extNavVelToFuse) {
+677:                 obs_data_chk = sq(constrain_ftype(extNavVelDelayed.err, 0.05f, 5.0f)) + sq(frontend->extNavVelVarAccScale * accNavMag);
+678:             } else
+679: #endif
+680:             {
+FILE libraries/AP_NavEKF3/AP_NavEKF3_Logging.cpp commit 9279df6191a772c098b2e4797c95ac954f258d88
+134: void NavEKF3_core::Log_Write_XKF4(uint64_t time_us) const
+135: {
+136:     // Write fourth EKF packet
+137:     float velVar = 0;
+138:     float posVar = 0;
+139:     float hgtVar = 0;
+140:     Vector3f magVar;
+141:     float tasVar = 0;
+142:     uint16_t _faultStatus=0;
+143:     Vector2f offset;
+144:     const uint8_t timeoutStatus =
+145:         posTimeout<<0 |
+146:         velTimeout<<1 |
+147:         hgtTimeout<<2 |
+148:         magTimeout<<3 |
+149:         tasTimeout<<4 |
+150:         dragTimeout<<5;
+151: 
+152:     nav_filter_status solutionStatus {};
+153:     getVariances(velVar, posVar, hgtVar, magVar, tasVar, offset);
+154:     float tempVar = fmaxF(fmaxF(magVar.x,magVar.y),magVar.z);
+155:     getFilterFaults(_faultStatus);
+156:     getFilterStatus(solutionStatus);
+157:     const struct log_XKF4 pkt4{
+158:         LOG_PACKET_HEADER_INIT(LOG_XKF4_MSG),
+159:         time_us : time_us,
+160:         core    : DAL_CORE(core_index),
+161:         sqrtvarV : (int16_t)(100*velVar),
+162:         sqrtvarP : (int16_t)(100*posVar),
+163:         sqrtvarH : (int16_t)(100*hgtVar),
+164:         sqrtvarM : (int16_t)(100*tempVar),
+165:         sqrtvarVT : (int16_t)(100*tasVar),
+166:         tiltErr : sqrtF(MAX(tiltErrorVariance,0.0f)),  // estimated 1-sigma tilt error in radians
+167:         offsetNorth : offset.x,
+168:         offsetEast : offset.y,
+169:         faults : _faultStatus,
+170:         timeouts : timeoutStatus,
+171:         solution : solutionStatus.value,
+172:         gps : gpsCheckStatus.value,
+173:         primary : frontend->getPrimaryCoreIndex()
+174:     };

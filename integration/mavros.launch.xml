@@ -1,0 +1,16 @@
+<launch>
+  <!-- Run from repository root, or override pluginlists_yaml with an absolute path. -->
+  <arg name="fcu_url" default="udp://0.0.0.0:14555@"/>
+  <arg name="namespace" default="mavros"/>
+  <arg name="pluginlists_yaml" default="integration/mavros_plugins.yaml"/>
+  <include file="$(find-pkg-share mavros)/launch/node.launch">
+    <arg name="fcu_url" value="$(var fcu_url)"/>
+    <arg name="gcs_url" value=""/>
+    <arg name="tgt_system" value="1"/>
+    <arg name="tgt_component" value="1"/>
+    <arg name="pluginlists_yaml" value="$(var pluginlists_yaml)"/>
+    <arg name="config_yaml" value="$(find-pkg-share mavros)/launch/apm_config.yaml"/>
+    <arg name="namespace" value="$(var namespace)"/>
+    <arg name="fcu_protocol" value="v2.0"/>
+  </include>
+</launch>
