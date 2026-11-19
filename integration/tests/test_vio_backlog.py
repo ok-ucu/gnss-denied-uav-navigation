@@ -334,6 +334,29 @@ class AdmissionTests(unittest.TestCase):
         a.processed(.05)
         self.assertEqual(a.expected(), .06)
 
+    def test_land_stall_does_not_starve_following_fresh_frames(self):
+        from vio_admission import Admission
+
+        admission = Admission(.157)
+        for duration in (.054, .062, .058, .048, .057, .163):
+            admission.processed(duration)
+
+        # Frame 51.9 was rejected by the absolute freshness gate. The cost
+        # model must allow frames 52.0 onward to be evaluated normally.
+        self.assertTrue(admission.admit(.080))
+        for age, cost in ((.013, .045), (.006, .054), (.010, .055), (.008, .051)):
+            admission.processed(cost)
+            self.assertTrue(admission.admit(age))
+
+    def test_repeated_stalls_keep_conservative_prediction(self):
+        from vio_admission import Admission
+
+        admission = Admission(.157)
+        for duration in (.040, .055, .048, .162, .163):
+            admission.processed(duration)
+        self.assertEqual(admission.expected(), .162)
+        self.assertFalse(admission.admit(.008))
+
     def test_limit_must_be_the_positive_publication_age(self):
         from vio_admission import Admission
         with self.assertRaises(ValueError):

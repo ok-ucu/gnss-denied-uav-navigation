@@ -23,7 +23,14 @@ class Admission:
         self.last_skipped = False
 
     def expected(self):
-        """Pessimistic recent processing time (max of the last few frames)."""
+        """Upper recent cost, excluding one isolated spike once history is mature.
+
+        A single descheduling stall must not predict the next five frames are
+        stale. Two slow frames still raise the prediction. A frame admitted
+        by this estimate must still pass the absolute publication deadline.
+        """
+        if len(self.recent) >= 4:
+            return sorted(self.recent)[-2]
         return max(self.recent) if self.recent else None
 
     def admit(self, age_at_start_s):

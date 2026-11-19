@@ -203,7 +203,8 @@ def main():
     config['source_sha256'] = {str(path.name): hashlib.sha256(path.read_bytes()).hexdigest()
                                for path in [Path(__file__), Path(__file__).with_name('vio_quality_gate.py'),
                                             Path(__file__).with_name('vio_sensor_capture.py'),
-                                            Path(__file__).with_name('vio_frontend_recovery.py')]
+                                            Path(__file__).with_name('vio_frontend_recovery.py'),
+                                            Path(__file__).with_name('vio_admission.py')]
                                + [a.vio_dir/name for name in ('vio_core.py', 'vio_frontend.py', 'vio_ros_source.py', 'vio_ros_out.py')]}
     if a.isolated_imu:
         config['source_sha256']['isolated_imu.py']=hashlib.sha256(Path(__file__).with_name('isolated_imu.py').read_bytes()).hexdigest()
