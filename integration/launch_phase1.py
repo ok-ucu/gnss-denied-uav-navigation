@@ -45,6 +45,55 @@ def validate_branch(branch, *, disarmed_test=False):
         raise ValueError('Unexpected branch; no switching performed')
 
 
+VALIDATED_LINUX_BRANCH = 'fix/phase1-linux-validated'
+VALIDATED_LINUX_COMMIT = '8e9ede457c1e93cb01a645fa6c4197e58e09029e'
+VALIDATED_LINUX_PHYSICS = 'sha256:1653eb3241db282628fab9a528328aede57d556c0f16bdaa3e0d7ef3c49faed9'
+VALIDATED_LINUX_CANDIDATE = 'b61130f975c0e6cdf67f2fd56d3e7d6fd025a7094bb379b247e907745900fc3f'
+VALIDATED_LINUX_WORLD = 'bf3dce911f0d02f5bd4a6f04710b62473c6784892917f1b6fb20257b14274df5'
+
+
+def validate_linux_disarmed_source(branch, *, disarmed_test, launcher_sha256, physics_image):
+    if branch != VALIDATED_LINUX_BRANCH or not disarmed_test:
+        raise ValueError('Validated Linux source requires the exact branch and explicit DISARMED execution')
+    root = INTEGRATION.parent
+
+    def git(*args):
+        return subprocess.check_output(['git', *args], cwd=root)
+
+    if git('rev-parse', 'HEAD').decode().strip() != VALIDATED_LINUX_COMMIT:
+        raise ValueError('Validated Linux source HEAD mismatch')
+    if physics_image != VALIDATED_LINUX_PHYSICS:
+        raise ValueError('Validated Linux physics image mismatch')
+    launcher = Path(__file__).absolute()
+    if launcher.is_symlink() or hashlib.sha256(launcher.read_bytes()).hexdigest() != launcher_sha256:
+        raise ValueError('Validated Linux launcher SHA-256 mismatch')
+    if git('diff-index', '--cached', '--name-only', 'HEAD'):
+        raise ValueError('Validated Linux source has staged changes')
+
+    for entry in git('ls-tree', '-rz', 'HEAD').split(b'\0'):
+        if not entry:
+            continue
+        metadata, name = entry.split(b'\t', 1)
+        mode, kind, digest = metadata.split()
+        relative = name.decode()
+        if relative == 'integration/launch_phase1.py':
+            continue  # The reviewed local launcher is identified separately above.
+        path = root / relative
+        if (kind != b'blob' or mode not in (b'100644', b'100755') or not path.is_file()
+                or path.resolve() != path or bool(path.stat().st_mode & 0o111) != (mode == b'100755')):
+            raise ValueError('Validated Linux source path mismatch: ' + relative)
+        data = path.read_bytes()
+        blob = b'blob ' + str(len(data)).encode() + b'\0' + data
+        if hashlib.sha1(blob).hexdigest().encode() != digest:
+            raise ValueError('Validated Linux source content mismatch: ' + relative)
+    for name in git('ls-files', '--others', '-z').split(b'\0'):
+        if name and not name.startswith((b'integration/linux_gpu_runs/', b'integration/phase1_runs/')):
+            raise ValueError('Unexpected file in validated Linux checkout: ' + name.decode())
+    return dict(branch=branch, source_commit=VALIDATED_LINUX_COMMIT,
+                launcher_sha256=launcher_sha256, physics_image=physics_image,
+                world_sha256=VALIDATED_LINUX_WORLD, scope='DISARMED vision only')
+
+
 def private_simulation_subnet(value):
     subnet = ipaddress.IPv4Network(value)
     ranges = ('10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16')
@@ -168,6 +217,8 @@ def main():
     parser.add_argument('--simulation-disarmed-vision',action='store_true',help='Explicit approval: bounded DISARMED vision to owned Gazebo/SITL only, never flight')
     parser.add_argument('--simulation-subnet', type=private_simulation_subnet)
     parser.add_argument('--simulation-origin',help='Explicit lat,lon,alt_m for the isolated simulation EKF origin')
+    parser.add_argument('--validated-linux-disarmed-launcher-sha256',
+                        help='Exact reviewed launcher hash for the pinned Linux DISARMED checkout')
     args = parser.parse_args()
     if args.simulation_disarmed_vision and (not args.runtime_candidate or not args.simulation_origin or args.gpu_mode!='nvidia'):
         parser.error('Simulation vision requires native candidate, explicit origin and NVIDIA profile')
@@ -200,7 +251,19 @@ def main():
     if run.exists():
         raise ValueError('Refuse to overwrite a run, including a prepared-only run')
     branch = subprocess.check_output(['git', 'branch', '--show-current'], cwd=INTEGRATION, text=True).strip()
-    validate_branch(branch, disarmed_test=args.execute and args.simulation_disarmed_vision)
+    disarmed_test = args.execute and args.simulation_disarmed_vision
+    linux_admission = None
+    if args.validated_linux_disarmed_launcher_sha256 is None:
+        validate_branch(branch, disarmed_test=disarmed_test)
+    else:
+        linux_admission = validate_linux_disarmed_source(
+            branch, disarmed_test=disarmed_test,
+            launcher_sha256=args.validated_linux_disarmed_launcher_sha256,
+            physics_image=images['physics'])
+        candidate_sha = hashlib.sha256(args.runtime_candidate.read_bytes()).hexdigest()
+        if candidate_sha != VALIDATED_LINUX_CANDIDATE:
+            raise ValueError('Validated Linux runtime candidate SHA-256 mismatch')
+        linux_admission['candidate_sha256'] = candidate_sha
     if args.simulation_subnet:
         verify_simulation_subnet(args.simulation_subnet)
     for name in names.values():
@@ -230,7 +293,12 @@ def main():
         (run / subdir).mkdir(parents=True, exist_ok=True)
     for filename in ('model.sdf', 'model.config'):
         shutil.copyfile(files['models/patched_c/iris_with_gimbal/' + filename], run / 'models/iris_with_gimbal' / filename)
-    install_runtime_world(files['models/patched_c_world.sdf'], run / 'models/world.sdf')
+    world_sha256 = install_runtime_world(files['models/patched_c_world.sdf'], run / 'models/world.sdf')
+    if linux_admission is not None:
+        if world_sha256 != linux_admission['world_sha256']:
+            raise ValueError('Validated Linux world SHA-256 mismatch')
+        (run / 'artifacts/validated-linux-admission.json').write_text(
+            json.dumps(linux_admission, indent=2) + '\n')
     shutil.copyfile(files['evidence/patched_c_gimbal_original.sdf'], run / 'evidence/integrated_gimbal_original.sdf')
     shutil.copy2(firmware,run/'artifacts/arducopter')
     (run / 'artifacts/run_identity.json').write_text(json.dumps(dict(
