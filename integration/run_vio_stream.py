@@ -131,6 +131,7 @@ def main():
     from rclpy.qos import QoSProfile,ReliabilityPolicy,DurabilityPolicy
     from vio_ros_out import RosOdomPublisher, quat_to_rot
     from vio_frontend import FlowFrontend
+    from vio_frontend_recovery import redetect
     from vio_core import VioEKF
     from vio_sensor_capture import capture
     from vio_geometry import camera_to_body_xy
@@ -201,7 +202,8 @@ def main():
     config.update(profile_pid=os.getpid(),frame_thread_native_id=threading.get_native_id())
     config['source_sha256'] = {str(path.name): hashlib.sha256(path.read_bytes()).hexdigest()
                                for path in [Path(__file__), Path(__file__).with_name('vio_quality_gate.py'),
-                                            Path(__file__).with_name('vio_sensor_capture.py')]
+                                            Path(__file__).with_name('vio_sensor_capture.py'),
+                                            Path(__file__).with_name('vio_frontend_recovery.py')]
                                + [a.vio_dir/name for name in ('vio_core.py', 'vio_frontend.py', 'vio_ros_source.py', 'vio_ros_out.py')]}
     if a.isolated_imu:
         config['source_sha256']['isolated_imu.py']=hashlib.sha256(Path(__file__).with_name('isolated_imu.py').read_bytes()).hexdigest()
@@ -532,7 +534,21 @@ def main():
                                                  previous, gray, t-previous_t, scale)
             flow_begin=time.monotonic()
             with critical_stage('source_frontend'):
+                compensated = frontend.prev
                 result = frontend.process(gray, t, camera_height, gyro, r)
+            if result is None and previous is not None and scale is not None and injected is None:
+                current = buffers['clocks'].latest()
+                now = time.monotonic()
+                check = clock_status(t, current, now, limit=PUBLICATION_MAX_AGE_S)
+                if check['valid']:
+                    # A native CV call can overrun; an expired result is discarded.
+                    # Keep the unchanged publication check after the independent audits.
+                    deadline = now + min(.025, PUBLICATION_MAX_AGE_S - check['simulation_age_s'])
+                    with critical_stage('source_frontend_redetection'):
+                        result = redetect(frontend, compensated, gray, t-previous_t,
+                                          camera_height, gyro, r, scale, deadline)
+                    row['frontend_redetection'] = dict(available=result is not None,
+                                                       wall_s=time.monotonic()-now)
             row['frontend_wall_s']=time.monotonic()-flow_begin
             state.update(previous=gray, previous_t=t, previous_depth=depth)
             audit = {'ok': False, 'reason': 'frontend unavailable' if previous is not None else 'no previous comparable frame'}
