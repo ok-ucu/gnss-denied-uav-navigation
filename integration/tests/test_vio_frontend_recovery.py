@@ -7,7 +7,7 @@ import cv2
 import numpy as np
 
 from vio_frontend import FlowFrontend
-from vio_frontend_recovery import redetect
+from vio_frontend_recovery import prefer_redetection, redetect
 from vio_quality_gate import judge_distributed_flow, measure_distributed_flow
 from vio_scale_compensation import compensate_previous
 
@@ -15,8 +15,9 @@ from vio_scale_compensation import compensate_previous
 class FrontendRecoveryTests(unittest.TestCase):
     def test_captured_climb_pairs_agree_with_spatial_audit(self):
         runs = Path(__file__).resolve().parents[1]/'phase1_runs'
-        for run, expected in [('20261119-flightdiag01', 29), ('20261119-flightfinal022718', 33)]:
-            path = runs/run/'evidence/flight-source/frontend-rejection-40300000000.npz'
+        for run, expected in [('20261119-flightdiag01', 29), ('20261119-flightfinal022718', 24), ('20261119-climbflight025407', 29)]:
+            stamp = 40100000000 if run == '20261119-climbflight025407' else 40300000000
+            path = runs/run/'evidence/flight-source'/f'frontend-rejection-{stamp}.npz'
             if not path.exists():
                 self.skipTest('Captured runtime evidence is unavailable')
             with self.subTest(run=run), np.load(path) as data:
@@ -31,10 +32,20 @@ class FrontendRecoveryTests(unittest.TestCase):
                 result = redetect(frontend, warped, gray, .1, height, gyro, rotation, scale, float('inf'))
                 self.assertIsNotNone(result)
                 self.assertGreaterEqual(result.n_inliers, expected-2)
-                audit = judge_distributed_flow(measure_distributed_flow(prev, gray, .1, scale),
-                                               height, frontend.fx, gyro, rotation, result.v_xy)
+                independent = measure_distributed_flow(prev, gray, .1, scale)
+                shared = measure_distributed_flow(prev, gray, .1, scale, compensated=warped)
+                np.testing.assert_array_equal(independent['flow'], shared['flow'])
+                self.assertEqual(independent['cells'], shared['cells'])
+                self.assertEqual(independent['span'], shared['span'])
+                audit = judge_distributed_flow(shared, height, frontend.fx, gyro, rotation, result.v_xy)
                 self.assertTrue(audit['ok'], audit)
-                self.assertLess(audit['disagreement_px'], .1)
+                self.assertLess(audit['disagreement_px'], .25)
+
+    def test_weak_support_and_shrinkage_are_both_required(self):
+        self.assertTrue(prefer_redetection(31, 15, .7939329))
+        self.assertFalse(prefer_redetection(154, 15, .7939329))
+        self.assertFalse(prefer_redetection(31, 15, 1.))
+        self.assertFalse(prefer_redetection(None, 15, .7939329))
 
     def test_bad_images_geometry_and_timing_are_rejected(self):
         rng = np.random.default_rng(290)

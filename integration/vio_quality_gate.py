@@ -112,7 +112,7 @@ def distributed_flow(previous, gray, dt, height, fx, gyro, rotation, frontend_ve
                                   height, fx, gyro, rotation, frontend_velocity)
 
 
-def measure_distributed_flow(previous, gray, dt, scale=None):
+def measure_distributed_flow(previous, gray, dt, scale=None, *, compensated=None):
     """Image-only half of the audit (detection, FB-LK, affine).
 
     Needs no estimator state, so the source runs it on a worker thread while
@@ -124,7 +124,7 @@ def measure_distributed_flow(previous, gray, dt, scale=None):
     if previous is None or not math.isfinite(dt) or dt <= 0:
         return {'ok': False, 'reason': 'no previous comparable frame'}
     original_shape = previous.shape
-    previous = compensate_previous(previous, scale)
+    previous = compensate_previous(previous, scale) if compensated is None else compensated
     h, w = gray.shape
     points = []
     with critical_stage('audit_detection'):

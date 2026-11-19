@@ -131,7 +131,7 @@ def main():
     from rclpy.qos import QoSProfile,ReliabilityPolicy,DurabilityPolicy
     from vio_ros_out import RosOdomPublisher, quat_to_rot
     from vio_frontend import FlowFrontend
-    from vio_frontend_recovery import redetect
+    from vio_frontend_recovery import prefer_redetection, redetect
     from vio_core import VioEKF
     from vio_sensor_capture import capture
     from vio_geometry import camera_to_body_xy
@@ -520,35 +520,49 @@ def main():
                 # and the audit see the same compensated previous frame.
                 frontend.prev = compensate_previous(frontend.prev, scale)
             row['scale_compensation'] = scale
+            compensated = frontend.prev
             audit_future = None
             if previous is not None:
-                def timed_measure(previous, gray, dt, scale):
+                def timed_measure(previous, gray, dt, scale, compensated):
                     begin=time.monotonic()
                     with critical_stage('source_spatial_audit'):
-                        measured=measure_distributed_flow(previous, gray, dt, scale)
+                        measured=measure_distributed_flow(previous, gray, dt, scale, compensated=compensated)
                     with critical_stage('source_texture_periods'):
                         # Image-only, on the audit worker, off the frame thread.
                         periods=vio_flow_consistency.texture_periods(previous)
                     return measured, periods, time.monotonic()-begin
                 audit_future = audit_pool.submit(contextvars.copy_context().run, timed_measure,
-                                                 previous, gray, t-previous_t, scale)
-            flow_begin=time.monotonic()
-            with critical_stage('source_frontend'):
-                compensated = frontend.prev
-                result = frontend.process(gray, t, camera_height, gyro, r)
-            if result is None and previous is not None and scale is not None and injected is None:
+                                                 previous, gray, t-previous_t, scale, compensated)
+            def attempt_redetection():
                 current = buffers['clocks'].latest()
                 now = time.monotonic()
                 check = clock_status(t, current, now, limit=PUBLICATION_MAX_AGE_S)
-                if check['valid']:
-                    # A native CV call can overrun; an expired result is discarded.
-                    # Keep the unchanged publication check after the independent audits.
-                    deadline = now + min(.025, PUBLICATION_MAX_AGE_S - check['simulation_age_s'])
-                    with critical_stage('source_frontend_redetection'):
-                        result = redetect(frontend, compensated, gray, t-previous_t,
-                                          camera_height, gyro, r, scale, deadline)
-                    row['frontend_redetection'] = dict(available=result is not None,
-                                                       wall_s=time.monotonic()-now)
+                if not check['valid']:
+                    return None
+                # A native CV call may overrun. Never accept its expired result.
+                deadline = now + min(.025, PUBLICATION_MAX_AGE_S - check['simulation_age_s'])
+                with critical_stage('source_frontend_redetection'):
+                    recovered = redetect(frontend, compensated, gray, t-previous_t,
+                                         camera_height, gyro, r, scale, deadline)
+                row['frontend_redetection'] = dict(available=recovered is not None,
+                                                   wall_s=time.monotonic()-now,
+                                                   before_baseline=early)
+                return recovered
+
+            flow_begin=time.monotonic()
+            support_stamp, support = state.get('frontend_support', (None, None))
+            can_redetect = previous is not None and scale is not None and injected is None
+            early = (can_redetect and support_stamp == previous_t
+                     and prefer_redetection(support, frontend.min_inliers, scale))
+            result = attempt_redetection() if early else None
+            if result is not None:
+                frontend.prev, frontend.prev_t = gray, t
+            else:
+                with critical_stage('source_frontend'):
+                    result = frontend.process(gray, t, camera_height, gyro, r)
+                if result is None and can_redetect and not early:
+                    result = attempt_redetection()
+            state['frontend_support'] = (t, result.n_inliers if result is not None else None)
             row['frontend_wall_s']=time.monotonic()-flow_begin
             state.update(previous=gray, previous_t=t, previous_depth=depth)
             audit = {'ok': False, 'reason': 'frontend unavailable' if previous is not None else 'no previous comparable frame'}

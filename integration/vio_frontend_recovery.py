@@ -4,6 +4,12 @@ import time
 from vio_scale_compensation import to_previous_coordinates
 
 
+def prefer_redetection(previous_inliers, min_inliers, scale):
+    """Try distributed recovery first after weak support and strong shrinkage."""
+    return (previous_inliers is not None and previous_inliers < 3 * min_inliers
+            and scale is not None and scale < .85)
+
+
 def redetect(frontend, previous, gray, dt, height, gyro, rotation, scale, deadline):
     import cv2
     import numpy as np
@@ -13,17 +19,21 @@ def redetect(frontend, previous, gray, dt, height, gyro, rotation, scale, deadli
             or not np.isfinite(dt) or dt <= 0 or not np.isfinite(height) or height <= 0
             or time.monotonic() >= deadline):
         return None
-    p0 = cv2.goodFeaturesToTrack(previous, frontend.max_corners, .005, 8)
+    p0 = cv2.goodFeaturesToTrack(previous, min(frontend.max_corners, 80), .005, 8)
     if p0 is None or len(p0) < frontend.min_inliers or time.monotonic() >= deadline:
         return None
     p1, forward, _ = cv2.calcOpticalFlowPyrLK(previous, gray, p0, None, **frontend.lk)
     if p1 is None or time.monotonic() >= deadline:
         return None
+    # Points already rejected by forward LK cannot pass the round-trip gate.
+    valid = forward.ravel() == 1
+    if valid.sum() < frontend.min_inliers:
+        return None
+    p0, p1 = p0[valid], p1[valid]
     back, backward, _ = cv2.calcOpticalFlowPyrLK(gray, previous, p1, None, **frontend.lk)
     if back is None or time.monotonic() >= deadline:
         return None
-    good = ((forward.ravel() == 1) & (backward.ravel() == 1)
-            & (np.linalg.norm(p0-back, axis=2).ravel() < 1.))
+    good = ((backward.ravel() == 1) & (np.linalg.norm(p0-back, axis=2).ravel() < 1.))
     if good.sum() < frontend.min_inliers:
         return None
     a, b = p0[good, 0], p1[good, 0]
