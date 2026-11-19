@@ -48,11 +48,11 @@ def texture_periods(gray, crop=PERIOD_CROP_PX, max_offset=PERIOD_MAX_OFFSET_PX,
     maximum >= min_peak. A smooth or random texture has no such maximum (its
     central lobe decays monotonically), so it returns [].
     """
-    g = np.asarray(gray, dtype=np.float32)
+    g = np.asarray(gray)
     h, w = g.shape[:2]
     c = min(crop, h, w)
     y0, x0 = (h-c)//2, (w-c)//2
-    g = g[y0:y0+c, x0:x0+c]
+    g = np.asarray(g[y0:y0+c, x0:x0+c], dtype=np.float32)
     g = g-g.mean()
     window = np.outer(np.hanning(c), np.hanning(c)).astype(np.float32)
     g = g*window

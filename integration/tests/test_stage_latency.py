@@ -262,6 +262,19 @@ class CriticalStageTests(unittest.TestCase):
             with stage_timing.critical_stage('disabled') as fields:
                 self.assertEqual(fields,{})
 
+    def test_live_critical_stage_records_without_scheduler_io(self):
+        rows = []
+        recorder = type('Sink', (), {'add': staticmethod(rows.append)})()
+        with patch.object(stage_timing, '_recorder', recorder), \
+             patch.object(stage_timing, 'thread_schedule', side_effect=AssertionError('blocking scheduler probe')), \
+             patch.object(stage_timing.resource, 'getrusage', side_effect=AssertionError('scheduler syscall')):
+            with stage_timing.sample(42), stage_timing.critical_stage('source_texture_periods'):
+                pass
+        self.assertEqual(rows[0]['acquisition_ns'], 42)
+        self.assertIsNone(rows[0]['schedule_delta'])
+        self.assertIsNone(rows[0]['voluntary_switches'])
+        self.assertGreaterEqual(rows[0]['thread_cpu_ns'], 0)
+
     def test_thread_cpu_process_cpu_and_runqueue_are_distinct(self):
         rows=[];recorder=type('Sink',(),{'add':staticmethod(rows.append)})()
         with patch.object(stage_timing,'_recorder',recorder), \
@@ -269,7 +282,7 @@ class CriticalStageTests(unittest.TestCase):
              patch.object(stage_timing.time,'monotonic_ns',side_effect=[100,110,10110,10120]), \
              patch.object(stage_timing.time,'thread_time_ns',side_effect=[10,1010]), \
              patch.object(stage_timing.time,'process_time_ns',side_effect=[100,5100]):
-            with stage_timing.sample(42),stage_timing.critical_stage('actual-source') as fields:
+            with stage_timing.sample(42),stage_timing.critical_stage('actual-source', scheduler_probe=True) as fields:
                 fields['samples']=7
         row=rows[0]
         self.assertEqual(row['acquisition_ns'],42)
@@ -283,7 +296,7 @@ class CriticalStageTests(unittest.TestCase):
         rows=[];recorder=type('Sink',(),{'add':staticmethod(rows.append)})()
         with patch.object(stage_timing,'_recorder',recorder),patch.object(stage_timing,'thread_schedule',return_value=None):
             with self.assertRaisesRegex(ValueError,'source invalid'):
-                with stage_timing.critical_stage('failed-source'):
+                with stage_timing.critical_stage('failed-source', scheduler_probe=True):
                     raise ValueError('source invalid')
         self.assertIsNone(rows[0]['schedule_delta'])
         self.assertGreaterEqual(rows[0]['thread_cpu_ns'],0)

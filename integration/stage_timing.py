@@ -96,12 +96,12 @@ def thread_schedule():
 
 
 @contextmanager
-def critical_stage(name, **metadata):
+def critical_stage(name, *, scheduler_probe=False, **metadata):
     """Opt-in CPU/wall profiling for coarse source stages, not every IMU sample.
 
-    Scheduler reads bracket the timed work and have their own overhead. Runqueue
-    counters are not futex/IO wait; wall minus thread CPU alone cannot name a wait.
-    Existing stage() process-CPU fields/transport instrumentation stay unchanged.
+    Keep live source profiling in memory. Dedicated offline measurements may
+    opt into synchronous scheduler reads; wall minus thread CPU cannot identify
+    a scheduler, lock or I/O wait on its own.
     """
     recorder=_recorder
     detail={}
@@ -109,14 +109,15 @@ def critical_stage(name, **metadata):
         yield detail
         return
     detail['profiled']=True
-    overhead=time.monotonic_ns();schedule=thread_schedule()
-    usage=resource.getrusage(resource.RUSAGE_THREAD) if hasattr(resource,'RUSAGE_THREAD') else None
+    overhead=time.monotonic_ns()
+    schedule=thread_schedule() if scheduler_probe else None
+    usage=resource.getrusage(resource.RUSAGE_THREAD) if scheduler_probe and hasattr(resource,'RUSAGE_THREAD') else None
     start=time.monotonic_ns();cpu=time.thread_time_ns();process=time.process_time_ns()
     try:
         yield detail
     finally:
         end=time.monotonic_ns();thread_cpu=time.thread_time_ns()-cpu;process_cpu=time.process_time_ns()-process
-        after=thread_schedule()
+        after=thread_schedule() if scheduler_probe else None
         final_usage=resource.getrusage(resource.RUSAGE_THREAD) if usage is not None else None
         delta=None if schedule is None or after is None else [b-a for a,b in zip(schedule,after)]
         recorder.add(dict(stage=name,acquisition_ns=_sample.get(),start_host_ns=start,end_host_ns=end,
