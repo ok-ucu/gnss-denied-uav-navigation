@@ -1,0 +1,47 @@
+{
+  "run": "20261118-flightabe2d67e5306",
+  "source": "integration/phase1_runs/20261118-flightabe2d67e5306/evidence/flight-source/stream.jsonl",
+  "sample_count": 360,
+  "vio_publications": 205,
+  "observed_average_rtf": 0.6507895065869616,
+  "max_vio_publish_gap_host_s": 0.9000499829999171,
+  "median_vio_publish_gap_host_s": 0.15996521549959652,
+  "simulation_rate_attribution": "historical aggregate; not a controlled RTF setpoint",
+  "transport_odom_count": 205,
+  "max_transport_odom_gap_host_s": 0.9007342730001255,
+  "watchdog_event_counts": {
+    "count": 5,
+    "examples": [
+      {
+        "file": "integration/phase1_runs/20261118-flightabe2d67e5306/evidence/flight-transport/events.jsonl",
+        "event": "odometry_skipped",
+        "reason": "VIO availability watchdog"
+      },
+      {
+        "file": "integration/phase1_runs/20261118-flightabe2d67e5306/evidence/flight-transport/events.jsonl",
+        "event": "latched_closed",
+        "reason": "VIO availability watchdog"
+      },
+      {
+        "file": "integration/phase1_runs/20261118-flightabe2d67e5306/evidence/flight-transport/events.jsonl",
+        "event": "latched_closed",
+        "reason": "VIO availability watchdog"
+      },
+      {
+        "file": "integration/phase1_runs/20261118-flightabe2d67e5306/evidence/flight-transport/events.jsonl",
+        "event": "latched_closed",
+        "reason": "VIO availability watchdog"
+      },
+      {
+        "file": "integration/phase1_runs/20261118-flightabe2d67e5306/evidence/flight-transport/events.jsonl",
+        "event": "latched_closed",
+        "reason": "VIO availability watchdog"
+      }
+    ]
+  },
+  "wire_packet_count": 290,
+  "camera_hz": "not established from this VIO stream alone",
+  "imu_hz": "not established from this VIO stream alone",
+  "shadows_verified_live": false,
+  "flight_authorized": false
+}

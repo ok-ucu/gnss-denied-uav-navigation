@@ -1,0 +1,32 @@
+{
+  "run": "20261118-flightfbf7d8854ed1",
+  "source": "integration/phase1_runs/20261118-flightfbf7d8854ed1/evidence/flight-source/stream.jsonl",
+  "sample_count": 438,
+  "vio_publications": 199,
+  "observed_average_rtf": 0.6842263795319778,
+  "max_vio_publish_gap_host_s": 4.8147658670000055,
+  "median_vio_publish_gap_host_s": 0.16497296150009788,
+  "simulation_rate_attribution": "historical aggregate; not a controlled RTF setpoint",
+  "transport_odom_count": 199,
+  "max_transport_odom_gap_host_s": 4.8043834110003445,
+  "watchdog_event_counts": {
+    "count": 2,
+    "examples": [
+      {
+        "file": "integration/phase1_runs/20261118-flightfbf7d8854ed1/evidence/flight-transport/events.jsonl",
+        "event": "odometry_skipped",
+        "reason": "VIO availability watchdog"
+      },
+      {
+        "file": "integration/phase1_runs/20261118-flightfbf7d8854ed1/evidence/flight-transport/events.jsonl",
+        "event": "latched_closed",
+        "reason": "VIO availability watchdog"
+      }
+    ]
+  },
+  "wire_packet_count": 318,
+  "camera_hz": "not established from this VIO stream alone",
+  "imu_hz": "not established from this VIO stream alone",
+  "shadows_verified_live": false,
+  "flight_authorized": false
+}
