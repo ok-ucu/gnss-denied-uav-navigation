@@ -102,5 +102,115 @@ class GateTests(unittest.TestCase):
         self.assertFalse(audit['ok'])
 
 
+@unittest.skipIf(np is None, 'NumPy required')
+class GateToleranceTests(unittest.TestCase):
+    """Audit C2 opt-in: one image-quality rejection does not cost readiness."""
+    def setUp(self):
+        self.g = QualityGate(tolerate_single_rejection=True)
+        self.kw = dict(imu_age=.001, frame_age=.01, clock_age=.01, max_imu_gap=.001,
+                       inliers=50, contrast=40, covariance=np.eye(9)*.01,
+                       state_finite=True, audit_ok=True, ekf_ok=True, estimator_healthy=True)
+        # What run_vio_stream passes when the frontend loses its features:
+        # no flow, so nothing was fused and ekf_ok is False too.
+        self.lost = dict(self.kw, inliers=0, ekf_ok=False)
+
+    def ready(self):
+        for t in [1., 1.15, 1.3]:
+            result = self.g.assess(t, t, **self.kw)
+        self.assertTrue(result)
+
+    def test_default_is_off_and_unchanged(self):
+        g = QualityGate()
+        for t in [1., 1.15, 1.3]:
+            g.assess(t, t, **self.kw)
+        self.assertFalse(g.assess(1.4, 1.4, **self.lost))
+        self.assertFalse(g.assess(1.5, 1.5, **self.kw))
+        self.assertEqual(g.count, 1)
+
+    def test_single_image_rejection_is_withheld_then_resumes(self):
+        self.ready()
+        self.assertFalse(self.g.assess(1.4, 1.4, **self.lost))
+        self.assertFalse(self.g.ready)              # nothing may be published for it
+        self.assertTrue(self.g.suspended)
+        self.assertTrue(self.g.assess(1.5, 1.5, **self.kw))
+        # Last publication 1.3 -> next 1.5: 200 ms instead of 500 ms.
+        self.assertEqual(round((1.5 - 1.3) * 1e9), 200_000_000)
+        self.assertEqual(self.g.tolerated, 1)
+        self.assertTrue(self.g.transitions[-2]['tolerated'])
+
+    def test_each_image_reason_is_tolerable(self):
+        for change in (dict(inliers=0), dict(contrast=0), dict(audit_ok=False),
+                       dict(consistency_ok=False)):
+            with self.subTest(change):
+                self.setUp(); self.ready()
+                self.assertFalse(self.g.assess(1.4, 1.4, **dict(self.kw, ekf_ok=False, **change)))
+                self.assertTrue(self.g.suspended)
+                self.assertTrue(self.g.assess(1.5, 1.5, **self.kw))
+
+    def test_two_consecutive_rejections_block_as_before(self):
+        self.ready()
+        self.assertFalse(self.g.assess(1.4, 1.4, **self.lost))
+        self.assertFalse(self.g.assess(1.5, 1.5, **self.lost))
+        self.assertFalse(self.g.suspended)
+        self.assertEqual(self.g.count, 0)
+        for t in (1.6, 1.7, 1.8):
+            self.assertFalse(self.g.assess(t, t, **self.kw))
+        self.assertTrue(self.g.assess(1.9, 1.9, **self.kw))
+
+    def test_non_image_failures_are_never_tolerated(self):
+        for change in (dict(imu_age=.1), dict(frame_age=.4), dict(clock_age=-.1),
+                       dict(max_imu_gap=.263), dict(frame_gap=.4), dict(state_finite=False),
+                       dict(covariance=-np.eye(9)), dict(ekf_ok=False),
+                       dict(inliers=0, ekf_ok=False, covariance=-np.eye(9)),   # image + covariance
+                       dict(inliers=0, ekf_ok=False, imu_age=.1),             # image + IMU
+                       dict(inliers=0, ekf_ok=False, estimator_healthy=False),
+                       dict(inliers=0, ekf_ok=False, estimator_healthy=None)):
+            with self.subTest(change):
+                self.setUp(); self.ready()
+                self.assertFalse(self.g.assess(1.4, 1.4, **dict(self.kw, **change)))
+                self.assertFalse(self.g.suspended)
+                self.assertEqual(self.g.count, 0)
+                self.assertFalse(self.g.assess(1.5, 1.5, **self.kw))
+
+    def test_timestamp_reset_and_external_block_are_never_tolerated(self):
+        self.ready()
+        self.assertFalse(self.g.assess(1.3, 1.31, **self.lost))
+        self.assertFalse(self.g.suspended)
+        self.setUp(); self.ready()
+        self.assertFalse(self.g.assess(1.4, 1.4, **self.lost))
+        self.g.block('stale at publication', 1.45, 1.45)
+        self.assertFalse(self.g.suspended)
+        self.assertFalse(self.g.assess(1.5, 1.5, **self.kw))
+
+    def test_no_tolerance_before_first_readiness(self):
+        self.g.assess(1., 1., **self.kw)
+        self.g.assess(1.15, 1.15, **self.kw)
+        self.assertFalse(self.g.assess(1.2, 1.2, **self.lost))
+        self.assertFalse(self.g.suspended)
+        self.assertEqual(self.g.count, 0)
+
+    def test_alternating_failures_block_until_rearmed(self):
+        self.ready()
+        self.assertFalse(self.g.assess(1.4, 1.4, **self.lost))
+        self.assertTrue(self.g.assess(1.5, 1.5, **self.kw))
+        # Second failure before re-arming: full block, as without the option.
+        self.assertFalse(self.g.assess(1.6, 1.6, **self.lost))
+        self.assertFalse(self.g.suspended)
+        self.assertEqual(self.g.count, 0)
+
+    def test_rearms_after_normal_readiness_criterion(self):
+        self.ready()
+        self.assertFalse(self.g.assess(1.4, 1.4, **self.lost))
+        for t in (1.5, 1.6, 1.7):
+            self.assertTrue(self.g.assess(t, t, **self.kw))
+            self.assertTrue(self.g.recovering)      # 3 frames but only 200 ms
+        self.assertTrue(self.g.assess(1.8, 1.8, **self.kw))
+        self.assertFalse(self.g.recovering)
+        self.assertFalse(self.g.assess(1.9, 1.9, **self.lost))
+        self.assertTrue(self.g.suspended)
+        self.assertTrue(self.g.assess(2.0, 2.0, **self.kw))
+        self.assertEqual(self.g.tolerated, 2)
+
+
 if __name__ == '__main__':
     unittest.main()

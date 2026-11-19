@@ -76,6 +76,9 @@ def main():
     p.add_argument('--min-epoch-subscribers',type=int,default=0)
     p.add_argument('--mount-calibration',type=Path,help='Opt-in fixed measured body lever; use IMU, never world GT attitude, for camera depth')
     p.add_argument('--fault-file',type=Path,help='Labelled local injection control, for isolated capture tests only')
+    p.add_argument('--tolerate-single-rejection',action='store_true',
+                   help='Opt-in (audit C2), SAFETY OWNER APPROVAL REQUIRED: a ready gate survives ONE frame rejected '
+                        'only for image quality; that frame is still withheld, a second consecutive rejection blocks')
     a = p.parse_args()
     if not all(math.isfinite(x) for x in (a.duration, a.ground_z,a.fault_offset)) or a.duration <= 0 or a.fault_offset<0:
         p.error('Invalid finite configuration')
@@ -121,7 +124,7 @@ def main():
     # was exceeded (median 122 ms), the backlog grew until 'stale at publication'.
     audit_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix='vio-audit')
     admission = Admission(PUBLICATION_MAX_AGE_S)
-    gate = QualityGate()
+    gate = QualityGate(tolerate_single_rejection=a.tolerate_single_rejection)
     ekf = VioEKF()
     frontend = FlowFrontend(205.4696)
     n = np.array([[0, 1, 0], [1, 0, 0], [0, 0, -1.]])
@@ -146,6 +149,7 @@ def main():
     config = dict(duration=a.duration, ground_z=a.ground_z, faults=schedule, started_monotonic_s=started,
                   profile=a.profile,async_diagnostics=a.async_diagnostics,reliable_camera=a.reliable_camera,session=session,
                   isolated_imu=a.isolated_imu,probe_owned_bridge=a.probe_owned_bridge,
+                  tolerate_single_rejection=a.tolerate_single_rejection,
                   min_odom_subscribers=a.min_odom_subscribers,min_epoch_subscribers=a.min_epoch_subscribers,
                   horizontal_gt_input=False, external_nav=False, fx=205.4696,
                   gate='3 frames + 250ms, <=200ms sim image age, 500ms wall watchdog',
@@ -531,7 +535,8 @@ def main():
                                     contrast=contrast, covariance=covariance,
                                     state_finite=bool(np.isfinite(ekf.x).all()),
                                     audit_ok=audit['ok'], ekf_ok=bool(accepted and ekf_ready(ekf) and state['reset_after'] is None), frame_gap=frame_gap,
-                                    consistency_ok=consistency is None or consistency['ok'])
+                                    consistency_ok=consistency is None or consistency['ok'],
+                                    estimator_healthy=bool(ekf_ready(ekf) and state['reset_after'] is None))
             row.update(state=ekf.x.tolist(), covariance=ekf.P.tolist(), audit=audit,
                        contrast=contrast, flow_accepted=bool(accepted), ekf_internal_resets=ekf.n_resets, imu_age=imu_age,
                        source_age=source_age, clock_age=clock['t']-t,
@@ -585,7 +590,7 @@ def main():
             row['skip_reason'] = row.get('error') or gate.reason or 'not ready'
             audit_row = row.get('audit') or {}
             skip_log(row['skip_reason'], round(t*1e9), 'vio_source', t=t, gate_ready=gate.ready,
-                     gate_count=gate.count, inliers=row.get('inliers'), frontend_available=row.get('frontend_available'),
+                     gate_count=gate.count, gate_suspended=gate.suspended, gate_tolerated=gate.tolerated, inliers=row.get('inliers'), frontend_available=row.get('frontend_available'),
                      audit_reason=audit_row.get('reason'), clock_age_s=row.get('clock_age'),
                      downstream_status=row.get('downstream_status'),
                      odom_subscribers=row.get('odom_subscribers'),

@@ -25,6 +25,9 @@ def main():
     p.add_argument('--fusion-proof',type=Path,required=True)
     p.add_argument('--origin',required=True,help='Explicit simulation lat,lon,alt_m')
     p.add_argument('--execute-simulation-flight',action='store_true',help='SEPARATE APPROVAL REQUIRED: may ARM ONLY this new owned SITL')
+    p.add_argument('--tolerate-single-rejection',action='store_true',
+                   help='Opt-in (audit C2), SAFETY OWNER APPROVAL REQUIRED: passed to run_vio_stream.py; '
+                        'recorded in evidence/flight-source/configuration.json')
     a=p.parse_args()
     baseline,permit=verify_proof(a.fusion_proof)
     candidate=load_candidate(a.runtime_candidate);vio=validate_vio_dir(a.vio_dir)
@@ -96,7 +99,8 @@ def main():
         start('flight-observer','vio',ros+'exec python3 -B /opt/integration/observe_frame_bridge.py --directory /run/integration/evidence/flight-observer --duration 145 --output-topic /integration/phase1/odometry_enu')
         transport=start('flight-transport','transport',ros+'source /tmp/patch_install/setup.bash; exec python3 -B /opt/integration/phase1_transport.py --run /run/integration --output-name flight-transport --duration 115 --simulation-vision-permit /run/integration/artifacts/simulation_vision_permit.json --simulation-flight-plan /run/integration/artifacts/flight_plan.json')
         transport_started=time.monotonic()
-        source=start('flight-source','vio',ros+'exec python3 -B /opt/integration/run_vio_stream.py --vio-dir /opt/vio --output-dir /run/integration/evidence/flight-source --duration 110 --ground-z .001 --mount-calibration /run/integration/artifacts/mount_calibration.json --profile --async-diagnostics --reliable-camera --isolated-imu --min-odom-subscribers 2 --min-epoch-subscribers 1')
+        source=start('flight-source','vio',ros+'exec python3 -B /opt/integration/run_vio_stream.py --vio-dir /opt/vio --output-dir /run/integration/evidence/flight-source --duration 110 --ground-z .001 --mount-calibration /run/integration/artifacts/mount_calibration.json --profile --async-diagnostics --reliable-camera --isolated-imu --min-odom-subscribers 2 --min-epoch-subscribers 1'
+            +(' --tolerate-single-rejection' if a.tolerate_single_rejection else ''))
         source_started=time.monotonic()
         # Current-boot aiding is proven independently from the transport's wire
         # counters. No FCU commands/connections; bounded, immutable log snapshots.

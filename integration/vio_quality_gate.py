@@ -29,14 +29,38 @@ def covariance_ok(matrix, size, max_variance=1.):
             and np.diag(p).max() <= max_variance)
 
 
+# Failures caused by one bad image pair, after which the estimator state is
+# untouched (the flow is never fused). Only these may be tolerated (opt-in).
+TRANSIENT_IMAGE_REASONS = frozenset({
+    'inliers', 'contrast',
+    'distributed flow disagreement/unavailable',
+    'flow inconsistent with IMU prediction / aliased',
+})
+
+
 class QualityGate:
     """Three consecutive ready frames spanning >=250ms before publication.
 
     Image/clock age <=200ms simulation, aligned IMU <=5ms, actual gaps <=20ms.
     Wall watchdog 500ms stops availability even if simulation clock stalls.
     A failure clears readiness immediately; no cached odometry is emitted.
+
+    tolerate_single_rejection (audit C2, OPT-IN, default False): at 10 Hz one
+    rejected frame costs 4 more frames (500 ms) of readiness, which is the
+    whole transport availability watchdog. When enabled, a READY gate may
+    survive exactly one rejected frame if that frame failed ONLY image-quality
+    checks (TRANSIENT_IMAGE_REASONS) and the caller states the estimator is
+    healthy (no forced velocity reset, no recovery in progress). The rejected
+    frame itself is still withheld and readiness is False while suspended, so
+    nothing is published for it. The next passing frame resumes publication
+    immediately; a second consecutive failure of any kind blocks as before.
+    The tolerance re-arms only after the normal readiness criterion holds
+    again (3 clean frames spanning >=250 ms), so a camera failing every other
+    frame still blocks on its second failure.
+    Timing, clock, IMU, covariance, state and EKF failures are never tolerated.
+    This loosens the readiness gate; it requires the safety owner's approval.
     """
-    def __init__(self):
+    def __init__(self, tolerate_single_rejection=False):
         self.ready = False
         self.since = None
         self.count = 0
@@ -45,10 +69,18 @@ class QualityGate:
         # Why the most recent frame was withheld (None when it was ready).
         # Diagnostics only: never consulted by any decision.
         self.reason = 'not yet assessed'
+        self.tolerate_single_rejection = tolerate_single_rejection is True
+        self.suspended = False      # one tolerated rejection is outstanding
+        self.recovering = False     # tolerance spent; waiting to re-arm
+        self.rearm_since = None
+        self.rearm_count = 0
+        self.tolerated = 0          # diagnostics: tolerated rejections so far
 
     def block(self, reason, t, wall):
-        previous = self.ready
+        previous = self.ready or self.suspended
         self.ready = False
+        self.suspended = False
+        self.recovering = False     # a full block restarts readiness from zero anyway
         self.since = None
         self.count = 0
         self.reason = reason
@@ -58,7 +90,7 @@ class QualityGate:
 
     def assess(self, t, wall, *, imu_age, frame_age, clock_age, max_imu_gap,
                inliers, contrast, covariance, state_finite, audit_ok, ekf_ok, frame_gap=.1,
-               consistency_ok=True):
+               consistency_ok=True, estimator_healthy=None):
         values = [t, wall, imu_age, frame_age, clock_age, max_imu_gap, inliers, contrast, frame_gap]
         if not all(math.isfinite(v) for v in values):
             return self.block('nonfinite timing/quality', t, wall)
@@ -83,9 +115,34 @@ class QualityGate:
                   (consistency_ok, 'flow inconsistent with IMU prediction / aliased'),
                   (ekf_ok, 'EKF not ready'),
                   (covariance_ok(covariance, 9), 'covariance')]
-        for ok, reason in checks:
-            if not ok:
-                return self.block(reason, t, wall)
+        failures = [reason for ok, reason in checks if not ok]
+        if failures:
+            # ekf_ok is necessarily False for an image failure (the flow was not
+            # fused); estimator_healthy separately vouches for the EKF itself.
+            if (self.tolerate_single_rejection and self.ready and not self.suspended
+                    and not self.recovering and estimator_healthy is True and failures[0] in TRANSIENT_IMAGE_REASONS
+                    and all(r in TRANSIENT_IMAGE_REASONS or r == 'EKF not ready' for r in failures)):
+                self.ready = False
+                self.suspended = True
+                self.recovering = True
+                self.rearm_since = None
+                self.rearm_count = 0
+                self.tolerated += 1
+                self.reason = 'tolerated single rejection: ' + failures[0]
+                self.transitions.append(dict(t=t, wall=wall, ready=False, reason=self.reason, tolerated=True))
+                return False
+            return self.block(failures[0], t, wall)
+        if self.suspended:
+            # The frame after a single tolerated rejection passed every check.
+            self.suspended = False
+            self.ready = True
+            self.transitions.append(dict(t=t, wall=wall, ready=True, reason='resumed after tolerated rejection'))
+        if self.recovering:
+            if self.rearm_since is None:
+                self.rearm_since = t
+            self.rearm_count += 1
+            if self.rearm_count >= 3 and t-self.rearm_since >= .25-1e-9:
+                self.recovering = False
         if self.since is None:
             self.since = t
         self.count += 1
