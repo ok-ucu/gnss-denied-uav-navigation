@@ -11,6 +11,10 @@ RUN git config --global http.postBuffer 524288000 && \
     git config --global http.version HTTP/1.1 && \
     for i in 1 2 3 4 5; do git clone https://github.com/ArduPilot/ardupilot.git && break || (rm -rf ardupilot; sleep 5); done
 WORKDIR /home/dev/ardupilot
+# Pinned to the flight controller firmware; the build fails if the tag does not resolve to this commit.
+ARG AP_TAG=Copter-4.6.3
+ARG AP_COMMIT=92b0cd788ec29406f26c6f9c31d5ceedbd1cc538
+RUN git checkout --detach "$AP_TAG" && test "$(git rev-parse HEAD)" = "$AP_COMMIT"
 RUN for i in 1 2 3 4 5; do git submodule update --init --recursive && break || sleep 5; done
 
 RUN USER=dev Tools/environment_install/install-prereqs-ubuntu.sh -y

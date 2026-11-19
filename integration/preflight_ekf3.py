@@ -7,6 +7,19 @@ from pathlib import Path
 EXPECTED={'AHRS_EKF_TYPE':3,'EK3_ENABLE':1,'EK3_SRC_OPTIONS':0,'EK3_SRC1_POSXY':6,'EK3_SRC1_VELXY':6,
           'EK3_SRC1_POSZ':1,'EK3_SRC1_VELZ':0,'EK3_SRC1_YAW':1,'VISO_TYPE':1,'VISO_SCALE':1,
           'VISO_ORIENT':0,'VISO_POS_X':0,'VISO_POS_Y':0,'VISO_POS_Z':0,'GPS_TYPE':0,'GPS_TYPE2':0}
+# ArduCopter >= 4.5 fuses VISION_POSITION/SPEED_ESTIMATE only if quality >= VISO_QUAL_MIN, and
+# those messages always arrive with quality 0 ("unknown"), so any VISO_QUAL_MIN > 0 silently drops
+# all vision. 4.4.4 has no such parameter, and ArduPilot ignores a read of an unknown one.
+AP444_COMMIT='9279df6191a772c098b2e4797c95ac954f258d88'
+
+
+def viso_quality_min_error(values,ap_commit):
+    if 'VISO_QUAL_MIN' in values:
+        v=values['VISO_QUAL_MIN']
+        return None if v<=0 else f'VISO_QUAL_MIN={v:g} > 0: FCU would drop all VISION_* messages'
+    return None if ap_commit==AP444_COMMIT else 'VISO_QUAL_MIN readback missing on firmware with quality gating'
+
+
 PORTS={'vio':14551,'monitor':14552,'motion':14553,'mavros':14555,'isolated_receiver':14590,'isolated_mavros':14591}
 
 
@@ -25,6 +38,7 @@ def parse_profile(text):
 def check_profile(profile,ports):
     errors=[f'{k}: expected {v}' for k,v in EXPECTED.items() if profile.get(k)!=v]
     if 'GPS1_TYPE' in profile:errors.append('GPS1_TYPE is not the 4.4.4 GPS_TYPE parameter')
+    if profile.get('VISO_QUAL_MIN',0)>0:errors.append(viso_quality_min_error(profile,AP444_COMMIT))
     if set(ports)!=set(PORTS) or len(set(ports.values()))!=len(ports):errors.append('Missing/colliding UDP roles')
     if any(type(p) is not int or not 1<=p<=65535 for p in ports.values()):errors.append('Invalid UDP port')
     return errors

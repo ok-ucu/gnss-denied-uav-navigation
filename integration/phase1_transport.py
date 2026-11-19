@@ -27,6 +27,7 @@ from navigation_lifecycle import NavigationLifecycle
 from navigation_egress import VisionEgress
 from vio_frame_bridge import convert
 from vio_adapter import convert_pair,expand_upper_triangle,validate_covariance
+from vio_gate_hold import load_budget,TransportHold,TOPIC as GATE_STATUS_TOPIC,QOS_DEPTH as GATE_STATUS_DEPTH
 
 
 def acquire_transport_lock(run):
@@ -95,6 +96,9 @@ def main():
     p.add_argument('--mavros-pid-file',type=Path,help='Owned local MAVROS PID, monitored fail-closed on process death')
     p.add_argument('--simulation-vision-permit',type=Path,help='Explicit run-bound DISARMED Gazebo/SITL permit; default has NO vision FCU route')
     p.add_argument('--simulation-flight-plan',type=Path,help='SEPARATE approval: bounded simulation TAKEOFF/HOVER/LAND; requires fusion proof and simulation permit')
+    p.add_argument('--gate-closed-hold-max-sim-s',type=float,help='Opt-in gate-closed hold cap (all three hold options required)')
+    p.add_argument('--gate-closed-hold-max-host-s',type=float)
+    p.add_argument('--gate-closed-hold-budget-evidence',type=Path,help='Budget evidence JSON; hardware scope is refused')
     a=p.parse_args()
     if a.simulation_flight_plan is not None and a.simulation_vision_permit is None:
         p.error('Simulation flight cannot bypass the inspected vision boundary')
@@ -113,6 +117,8 @@ def main():
             raise ValueError('Simulation fusion cannot reuse capture authorization or fault injection')
         from simulation_vision import SimulationVisionRoute
         simulation=SimulationVisionRoute(a.run,a.simulation_vision_permit)
+    hold_budget=load_budget(a.gate_closed_hold_max_sim_s,a.gate_closed_hold_max_host_s,
+                            a.gate_closed_hold_budget_evidence,simulation=simulation is not None)
     # New preparation binds the exact copied firmware. Historical runs keep
     # their legacy path; neither path admits an unknown hash to the mapper.
     digest=prepared_firmware_digest(a.run,identity,simulation)
@@ -154,6 +160,8 @@ def main():
     skip_log=SkipLog(lambda row:log('events',**row))
     # Diagnostics only: names samples that exceed a vio_latency_contract reserve.
     contract_log=SkipLog(lambda row:log('events',**row),event='latency_contract_exceeded')
+    hold=None if hold_budget is None else TransportHold(hold_budget,lambda **row:log('events',**row))
+    if hold is not None:log('events',event='gate_closed_hold_configured',**hold_budget)
     running=[True];clock=[None,None];pending=OrderedDict();tokens={};expected={};last_odom=[None];last_odom_acquisition=[None]
     stats=dict(odom_received=0,mapped_pairs=0,vision_received=0,validated_capture_packets=0,vision_sent_to_fcu=0,
                control_sent_to_fcu=0,heartbeat=0,armed_samples=0,clock_proof_checks=0,system_time_requests=0)
@@ -190,6 +198,7 @@ def main():
             skip_log(str(exc),ns,'transport_receive',ros_clock_ns=clock[0],
                      age_sim_ns=None if clock[0] is None else clock[0]-ns,gate_blocked=gate.durable.state['blocked'])
             block(str(exc));return
+        if hold is not None:hold.normal(ns,callback_entry)
         pending[ns]=(msg,time.monotonic_ns());stats['odom_received']+=1
         if len(pending)>32:
             block('bounded odometry buffer overflow');dropped,_=pending.popitem(last=False)
@@ -207,11 +216,17 @@ def main():
             tokens[row['stamp_ns']]=row
             if len(tokens)>64:tokens.pop(next(iter(tokens)))
         except (ValueError,KeyError,TypeError):block('malformed epoch token')
+    def on_gate_status(msg):
+        # Liveness only while the gate is closed for a visual cause; carries no navigation data.
+        if initial_allowed or gate.durable.state['blocked']:return
+        try:hold.on_status(msg.data,time.monotonic_ns(),clock[0],gate.durable.state['producer'])
+        except (ValueError,KeyError,TypeError) as exc:block('gate status invalid: '+str(exc))
     # Only the latest clock matters. A reliable 4096-deep queue can make a
     # healthy sensor appear future-dated when this executor shares a CPU cap.
     node.create_subscription(Clock,'/clock',on_clock,QoSProfile(depth=1,reliability=ReliabilityPolicy.BEST_EFFORT))
     node.create_subscription(Odometry,'/vio/odom',on_odom,100)
     node.create_subscription(String,'/integration/vio/sample_epoch',on_token,100)
+    if hold is not None:node.create_subscription(String,GATE_STATUS_TOPIC,on_gate_status,GATE_STATUS_DEPTH)
     node.create_subscription(TimesyncStatus,'/mavros/timesync_status',lambda m:log('timesync',remote=m.remote_timestamp_ns,
         observed=m.observed_offset_ns,estimated=m.estimated_offset_ns,rtt=m.round_trip_time_ms),qos_profile_sensor_data)
     udp=socket.socket(socket.AF_INET,socket.SOCK_DGRAM);udp.bind(('127.0.0.1',14890));udp.setblocking(False)
@@ -265,15 +280,17 @@ def main():
         flight_requests=[1,32,33,193,245]
     sent={};witness=[];offset=0;last_ping=0;watermark=None;started=time.monotonic()
     last_heartbeat=None
-    parameter_names=['GPS_TYPE','GPS_TYPE2','AHRS_EKF_TYPE','EK3_ENABLE','EK3_SRC_OPTIONS','EK3_SRC1_POSXY',
+    parameter_names=['VISO_QUAL_MIN','GPS_TYPE','GPS_TYPE2','AHRS_EKF_TYPE','EK3_ENABLE','EK3_SRC_OPTIONS','EK3_SRC1_POSXY',
         'EK3_SRC1_VELXY','EK3_SRC1_POSZ','EK3_SRC1_VELZ','EK3_SRC1_YAW','VISO_TYPE','VISO_DELAY_MS',
         'VISO_POS_M_NSE','VISO_VEL_M_NSE','VISO_YAW_M_NSE','SERIAL0_PROTOCOL']
     last_param=0
     parameter_values={};parameter_times={};flight_param_epoch=None;origin_sent=False;origin_confirmed=False
     if simulation is not None:
-        from preflight_ekf3 import EXPECTED
+        from preflight_ekf3 import EXPECTED,AP444_COMMIT,viso_quality_min_error
         from analyze_mavros_wire import expected as expected_wire
         parameter_names=list(dict.fromkeys(parameter_names+list(EXPECTED)))
+        # 4.4.4 has no VISO_QUAL_MIN (unknown reads get no reply); any newer firmware must answer it.
+        required_params=(*EXPECTED,'SERIAL0_PROTOCOL')+(() if simulation.permit['ap_commit']==AP444_COMMIT else ('VISO_QUAL_MIN',))
         if flight is not None:parameter_names.append('ARMING_CHECK')
     system_pending=None;last_system=0
     trace=a.run/'evidence/applied.csv'
@@ -461,15 +478,19 @@ def main():
                         name=msg.param_id.decode() if isinstance(msg.param_id,bytes) else msg.param_id
                         parameter_values[name.rstrip('\0')]=msg.param_value
                         parameter_times[name.rstrip('\0')]=received
+                        if parameter_values.get('VISO_QUAL_MIN',0)>0:
+                            block('VISO_QUAL_MIN > 0: FCU would drop all VISION_* messages')
                     if simulation is not None and kind=='GPS_GLOBAL_ORIGIN':
                         origin_confirmed=[msg.latitude,msg.longitude,msg.altitude]==simulation.permit['origin']
                         if not origin_confirmed:block('FCU origin readback mismatch')
                     udp.sendto(bytes(msg.get_msgbuf()),('127.0.0.1',14891))
             if simulation is not None:
                 simulation.heartbeat.assert_fresh(time.monotonic())
-                if not origin_sent and simulation.ready(time.monotonic_ns()) and all(k in parameter_values for k in (*EXPECTED,'SERIAL0_PROTOCOL')):
+                if not origin_sent and simulation.ready(time.monotonic_ns()) and all(k in parameter_values for k in required_params):
                     if any(parameter_values[k]!=v for k,v in EXPECTED.items()) or parameter_values.get('SERIAL0_PROTOCOL')!=2:
                         raise ValueError('FCU ExternalNav/GPS/MAVLink parameter readback mismatch')
+                    quality_error=viso_quality_min_error(parameter_values,simulation.permit['ap_commit'])
+                    if quality_error:raise ValueError(quality_error)
                     origin=wire.MAVLink_set_gps_global_origin_message(1,*simulation.permit['origin'])
                     tcp.sendall(origin.pack(enc));enc.seq=(enc.seq+1)%256
                     request=wire.MAVLink_command_long_message(1,1,512,0,49,0,0,0,0,0,0)
@@ -540,7 +561,8 @@ def main():
                     log('flight',event='current_DataFlash_fusion_witness_verified')
                     now = time.monotonic_ns()
                 vision_valid=(not initial_allowed and not simulation.failure and not gate.durable.state['blocked']
-                    and flight.last_pair is not None and 0<=now-flight.last_pair<=500_000_000 and gate.watchdog(now))
+                    and ((flight.last_pair is not None and 0<=now-flight.last_pair<=500_000_000)
+                         or (hold is not None and hold.valid(now,clock[0]))) and gate.watchdog(now))
                 if simulation.failure:flight.emergency(simulation.failure,now)
                 parameter_fresh=all(parameter_times.get(k,-1)>=flight.since for k in (*EXPECTED,'ARMING_CHECK','SERIAL0_PROTOCOL'))
                 if flight.state == 'GUIDED' and parameter_fresh:
@@ -556,11 +578,14 @@ def main():
             if not initial_allowed and not gate.durable.state['blocked']:
                 if not heartbeat_fresh(last_heartbeat,mapping.anchors[-1]['target_ns']):block('FCU heartbeat missing/stale')
                 elif not poses.get_subscription_count() or not speeds.get_subscription_count():block('MAVROS disconnected')
-                elif last_odom[0] is not None and time.monotonic_ns()-last_odom[0]>500_000_000:
+                elif (last_odom[0] is not None and time.monotonic_ns()-last_odom[0]>500_000_000
+                      and (hold is None or not hold.valid(time.monotonic_ns(),clock[0]))):
+                    watchdog_reason=('VIO gate-closed hold exceeded cap' if hold is not None and hold.cap_exceeded(time.monotonic_ns(),clock[0])
+                                     else 'VIO availability watchdog')
 
                     # Names the last sample that DID arrive; the source's own
                     # skips.jsonl/stream.jsonl say why the following ones did not.
-                    skip_log('VIO availability watchdog',last_odom_acquisition[0],'transport_watchdog',
+                    skip_log(watchdog_reason,last_odom_acquisition[0],'transport_watchdog',
                              odom_age_host_ns=time.monotonic_ns()-last_odom[0],ros_clock_ns=clock[0],
                              flight_state=None if flight is None else flight.state)
 
@@ -575,7 +600,7 @@ def main():
                         gate_blocked=gate.durable.state['blocked']
                     )
 
-                    block('VIO availability watchdog')
+                    block(watchdog_reason)
                 elif a.mavros_pid_file is not None:
                     try:
                         pid=int(a.mavros_pid_file.read_text())

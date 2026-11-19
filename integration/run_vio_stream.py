@@ -22,6 +22,8 @@ from vio_admission import Admission, keep_as_reference
 import vio_flow_consistency
 from vio_imu_preintegration import (new_pending, frame_step, idle_step, observe_frame_stamp, advance,
                                     ImuGapError, PreintegrationOverrun, PROPAGATION_STEP_S)
+from vio_gate_hold import (load_budget, ProducerHold, frame_cause, nonvisual_ok,
+                           TOPIC as GATE_STATUS_TOPIC, QOS_DEPTH as GATE_STATUS_DEPTH)
 
 
 # Source publication age gate (simulation seconds), derived from the transport's
@@ -112,10 +114,18 @@ def main():
     p.add_argument('--min-epoch-subscribers',type=int,default=0)
     p.add_argument('--mount-calibration',type=Path,help='Opt-in fixed measured body lever; use IMU, never world GT attitude, for camera depth')
     p.add_argument('--fault-file',type=Path,help='Labelled local injection control, for isolated capture tests only')
+    p.add_argument('--gate-closed-hold-max-sim-s',type=float,help='Opt-in gate-closed status (all three hold options required)')
+    p.add_argument('--gate-closed-hold-max-host-s',type=float)
+    p.add_argument('--gate-closed-hold-budget-evidence',type=Path,help='Budget evidence JSON; hardware scope is refused')
     a = p.parse_args()
     if not all(math.isfinite(x) for x in (a.duration, a.ground_z,a.fault_offset)) or a.duration <= 0 or a.fault_offset<0:
         p.error('Invalid finite configuration')
     if min(a.min_odom_subscribers,a.min_epoch_subscribers)<0:p.error('Negative discovery requirement')
+    try:
+        hold_budget = load_budget(a.gate_closed_hold_max_sim_s, a.gate_closed_hold_max_host_s,
+                                  a.gate_closed_hold_budget_evidence)
+    except (OSError, ValueError, KeyError) as exc:
+        p.error(f'gate-closed hold: {exc}')
     a.output_dir.mkdir(parents=True, exist_ok=False)
     timing=activate(a.output_dir/'stages.jsonl', sample_scheduler=True) if a.profile else None
     fault_control=FaultFile(a.fault_file)
@@ -144,6 +154,8 @@ def main():
     ros_node = rclpy.create_node('vio_gated_output')
     epoch_pub=ros_node.create_publisher(String,'/integration/vio/sample_epoch',100)
     session=str(uuid.uuid4())
+    hold = None if hold_budget is None else ProducerHold(hold_budget, session)
+    status_pub = None if hold is None else ros_node.create_publisher(String, GATE_STATUS_TOPIC, GATE_STATUS_DEPTH)
     epoch_start=[None]
     log = (a.output_dir/'stream.jsonl').open('x')
     publications = (a.output_dir/'publications.jsonl').open('x')
@@ -210,6 +222,9 @@ def main():
                                + [a.vio_dir/name for name in ('vio_core.py', 'vio_frontend.py', 'vio_ros_source.py', 'vio_ros_out.py')]}
     if a.isolated_imu:
         config['source_sha256']['isolated_imu.py']=hashlib.sha256(Path(__file__).with_name('isolated_imu.py').read_bytes()).hexdigest()
+    if hold is not None:
+        config['gate_closed_hold'] = hold_budget
+        config['source_sha256']['vio_gate_hold.py']=hashlib.sha256(Path(__file__).with_name('vio_gate_hold.py').read_bytes()).hexdigest()
     config.update(fixed_mount_calibration=None if a.mount_calibration is None else str(a.mount_calibration),
                   fault_file=None if a.fault_file is None else str(a.fault_file),
                   world_gt_attitude_used_for_camera_depth=calibrated_lever is None,
@@ -286,6 +301,8 @@ def main():
 
     def block(reason, t, reset=False):
         gate.block(reason, t, time.monotonic())
+        if hold is not None:
+            hold.abort(reason, None if t is None else round(t*1e9), time.monotonic())
         if reset and state['reset_after'] is None:
             state['reset_after'] = recovery_deadline(t)
             if state['reset_after'] is not None:state['gaps'] += 1
@@ -664,6 +681,28 @@ def main():
                         odom.publish(r, ekf.x[:3], ekf.x[3:6], ekf.P[:3, :3], ekf.P[3:6, 3:6], 3e-4)
                     row['published'] = True
                     if a.profile:row['post_enqueue_age_sim_s']=buffers['clocks'].latest()['t']-t
+            if hold is not None:
+                if row['published']:
+                    hold.normal(round(t*1e9), time.monotonic())
+                else:
+                    # No odometry: at most a "gate closed" status, only for a visual cause
+                    # with every non-visual check, the estimator, DDS and the clock healthy.
+                    flow_nis_rejected = (result is not None and audit['ok'] and consistency is not None
+                                         and consistency['ok'] and not accepted)
+                    cause = frame_cause(gate.reason, flow_nis_rejected)
+                    eligible = (cause is not None
+                                and ekf.n_resets == 0 and ekf.vel_init and state['reset_after'] is None
+                                and nonvisual_ok(t, wall, imu_age=imu_age, frame_age=source_age,
+                                                 clock_age=clock['t']-t, max_imu_gap=max_gap, frame_gap=frame_gap,
+                                                 covariance=covariance, state_finite=bool(np.isfinite(ekf.x).all()))
+                                and output_node.odom_publisher.get_subscription_count() >= a.min_odom_subscribers
+                                and epoch_pub.get_subscription_count() >= a.min_epoch_subscribers
+                                and clock_status(t, buffers['clocks'].latest())['valid'])
+                    message = hold.status(round(t*1e9), time.monotonic(), state['recoveries'], cause, eligible,
+                                          covariance_diag=np.diag(ekf.P).tolist())
+                    if message is not None:
+                        status_pub.publish(String(data=json.dumps(message)))
+                        row['gate_status'] = message
             row['processing_s'] = time.monotonic()-wall
         except (ValueError, KeyError) as exc:
             block(str(exc), t)
@@ -724,6 +763,8 @@ def main():
         skips_file.close()
         (a.output_dir/'gate_transitions.json').write_text(json.dumps(gate.transitions, indent=2)+'\n')
         (a.output_dir/'fault_events.json').write_text(json.dumps(fault_events, indent=2)+'\n')
+        if hold is not None:
+            (a.output_dir/'gate_hold_transitions.json').write_text(json.dumps(hold.transitions, indent=2)+'\n')
         summary = {k: state[k] for k in ('emitted', 'accepted', 'rejected', 'gaps', 'recoveries')}
         (a.output_dir/'summary.json').write_text(json.dumps(summary, indent=2)+'\n')
         if timing is not None:timing.close()

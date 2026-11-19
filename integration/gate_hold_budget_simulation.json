@@ -1,0 +1,11 @@
+{
+  "schema": 1,
+  "scope": "simulation",
+  "max_sim_s": 0.5,
+  "max_host_s": 1.2,
+  "derived_from": [
+    {"path": "reports/degraded_drift_phaseA.json", "sha256": "53921230ba67ccebc58fc3d083013fa0cad44f2a5ae2c2368f09a3528ce73fed"}
+  ],
+  "basis": "SITL only: single rejection at 10 Hz closes the gate for 0.5 s sim; measured sim/host p10 down to 0.478 -> 1.05 s host. NOT valid for hardware; hardware scope is refused until M4.",
+  "approved_by": ["user 2026-11-19 (simulation-only values)"]
+}
