@@ -162,6 +162,39 @@ class ReadinessAndWatchdog(unittest.TestCase):
         # at real-time factor <= 1. In flight every gate block must be avoided.
         self.assertGreaterEqual(self.outage('block')+1e-9, WATCHDOG_S)
 
+    def test_touchdown_rejection_recovers_only_on_fourth_good_frame(self):
+        from vio_quality_gate import QualityGate
+
+        gate = QualityGate()
+        covariance = np.eye(9)*.01
+        for t in (56.4, 56.5, 56.6, 56.7):
+            ready = gate.assess(t,t,covariance=covariance,**self.kw)
+        self.assertTrue(ready)
+        self.assertFalse(gate.assess(56.8,56.8,covariance=covariance,**dict(self.kw,inliers=0)))
+        for t in (56.9, 57.0, 57.1):
+            self.assertFalse(gate.assess(t,t,covariance=covariance,**self.kw))
+        self.assertTrue(gate.assess(57.2,57.2,covariance=covariance,**self.kw))
+        self.assertEqual(round((57.2-56.7)*1e9),500_000_000)
+
+    def test_frontend_rejection_capture_preserves_raw_pair_and_camera_inputs(self):
+        from tempfile import TemporaryDirectory
+        from run_vio_stream import save_frontend_rejection
+
+        with TemporaryDirectory() as temp:
+            path = Path(temp)/'frontend-rejection-56800000000.npz'
+            previous = np.arange(16,dtype=np.uint8).reshape(4,4)
+            current = np.flip(previous).copy()
+            save_frontend_rejection(path,previous,current,previous_ns=56_700_000_000,
+                                    current_ns=56_800_000_000,previous_depth=.3,depth=.22,
+                                    scale=1.336,gyro=np.zeros(3),rotation=np.eye(3))
+            self.assertFalse(path.with_suffix('.pending').exists())
+            with np.load(path,allow_pickle=False) as recorded:
+                self.assertTrue(np.array_equal(recorded['previous'],previous))
+                self.assertTrue(np.array_equal(recorded['current'],current))
+                self.assertEqual(recorded['current_ns'],56_800_000_000)
+                self.assertEqual(recorded['scale'],1.336)
+                self.assertTrue(np.array_equal(recorded['body_to_ned'],np.eye(3)))
+
     def test_one_skipped_frame_stays_within_the_continuity_bound(self):
         self.assertLessEqual(self.outage('skip'), MAX_GAP+1e-9)
 

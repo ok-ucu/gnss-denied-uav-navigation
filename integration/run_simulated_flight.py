@@ -158,10 +158,13 @@ def main():
         transport.wait(timeout=max(1,120-(time.monotonic()-transport_started)))
         result=json.loads((run/'evidence/flight-transport/flight_result.json').read_text())
         safe_landed=result.get('landed_disarmed_confirmed') is True
-        if transport.returncode or result['status']!='PASS':raise RuntimeError('Flight failed; LAND/STOP evidence retained')
-        # Allow the bounded source to finish/export normally while DISARMED.
-        source.wait(timeout=max(1,125-(time.monotonic()-source_started)))
-        if source.returncode:raise RuntimeError('Flight source export incomplete')
+        # Preserve camera/IMU/clock traces on failures with confirmed LAND/DISARMED, too.
+        # If landing could not be confirmed, finally must STOP the owned stack immediately.
+        if safe_landed:
+            source.wait(timeout=max(1,125-(time.monotonic()-source_started)))
+            if source.returncode:raise RuntimeError('Flight source export incomplete')
+        if not safe_landed or transport.returncode or result['status']!='PASS':
+            raise RuntimeError('Flight failed; LAND/STOP evidence retained')
         print(json.dumps(result))
     finally:
         if fixture and safe_landed:

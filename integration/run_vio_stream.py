@@ -29,6 +29,19 @@ from vio_imu_preintegration import (new_pending, frame_step, idle_step, observe_
 from vio_latency_contract import SOURCE_PUBLICATION_MAX_AGE_S as PUBLICATION_MAX_AGE_S, describe as latency_contract
 
 
+def save_frontend_rejection(path, previous, current, *, previous_ns, current_ns,
+                            previous_depth, depth, scale, gyro, rotation):
+    """Persist the actual inputs for offline replay without changing the gate."""
+    import numpy as np
+
+    pending = path.with_suffix('.pending')
+    with pending.open('xb') as out:
+        np.savez(out, previous=previous, current=current, previous_ns=previous_ns,
+                 current_ns=current_ns, previous_depth_m=previous_depth, depth_m=depth,
+                 scale=scale, gyro_frd=gyro, body_to_ned=rotation)
+    pending.rename(path)
+
+
 def recovery_deadline(stamp):
     """Before any camera time is available the estimator stays uninitialized."""
     return None if stamp is None else stamp+.25
@@ -114,6 +127,9 @@ def main():
     # Flight evidence: at real-time factor ~1 (airborne) the 100 ms frame budget
     # was exceeded (median 122 ms), the backlog grew until 'stale at publication'.
     audit_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix='vio-audit')
+    rejection_pool = (ThreadPoolExecutor(max_workers=1, thread_name_prefix='vio-rejection')
+                      if a.profile else None)
+    rejection_writes = []
     admission = Admission(PUBLICATION_MAX_AGE_S)
     gate = QualityGate()
     ekf = VioEKF()
@@ -459,8 +475,9 @@ def main():
             # Same depth the frontend uses; GT-derived height is already an input.
             depth = camera_height/max(float(r[2, 2]), .5)
             scale = None
+            previous_depth = state['previous_depth']
             if previous is not None and frontend.prev is not None:
-                scale = predicted_scale(state['previous_depth'], depth)
+                scale = predicted_scale(previous_depth, depth)
                 # Both the pinned frontend (unmodified code, compensated input)
                 # and the audit see the same compensated previous frame.
                 frontend.prev = compensate_previous(frontend.prev, scale)
@@ -515,6 +532,17 @@ def main():
                     row.update(nis=float(nis))
                 state['accepted' if accepted else 'rejected'] += 1
                 row.update(inliers=result.n_inliers, sigma_v=result.sigma_v)
+            if (rejection_pool is not None and len(rejection_writes) < 3 and result is None
+                    and previous is not None and gate.ready and injected is None):
+                stamp_ns = round(t*1e9)
+                pair = a.output_dir/f'frontend-rejection-{stamp_ns}.npz'
+                rejection_writes.append(rejection_pool.submit(
+                    save_frontend_rejection, pair, previous.copy(), gray.copy(),
+                    previous_ns=round(previous_t*1e9), current_ns=stamp_ns,
+                    previous_depth=previous_depth if previous_depth is not None else math.nan,
+                    depth=depth, scale=scale if scale is not None else math.nan,
+                    gyro=np.asarray(gyro).copy(), rotation=r.copy()))
+                row['frontend_rejection_capture'] = pair.name
             covariance = ekf.P.copy()
             if injected == 'bad_covariance':
                 covariance[0, 0] = -1  # Gate injection only, estimator state remains unaltered.
@@ -602,6 +630,13 @@ def main():
     finally:
         # capture owns shutdown; destroy publisher node before process exits.
         audit_pool.shutdown(wait=True)
+        if rejection_pool is not None:
+            rejection_pool.shutdown(wait=True)
+            for capture_result in rejection_writes:
+                try:
+                    capture_result.result()
+                except (OSError, ValueError) as exc:
+                    print(f'Frontend rejection capture failed: {exc}', file=sys.stderr, flush=True)
         ros_node.destroy_node()
         log.close()
         publications.close()
