@@ -11,10 +11,10 @@ import struct
 import sys
 import time
 
-from launch_phase1 import validate_run_id, validate_vio_dir
+from launch_phase1 import cleanup_container_id, validate_run_id, validate_vio_dir
 from runtime_candidate import ROOT, load_candidate, sha
 from simulation_vision import prepare_permit, origin_values
-from simulation_flight import verify_proof, decode_dataflash, current_fusion_attestation, SCOPE, LIMITS
+from simulation_flight import verify_proof, decode_live_dataflash, current_fusion_attestation, SCOPE, LIMITS
 
 
 def main():
@@ -42,6 +42,7 @@ def main():
     names={k:'gnss-p1-'+k+'-'+a.run_id for k in ('physics','fcu','vio','transport')}
     compose=['docker','compose','--env-file',str(run/'compose.env'),'-f',str(ROOT/'phase1.compose.yaml'),
              '-f',str(ROOT/'linux_gpu/phase1.gpu.nvidia.yaml')]
+    project='gnss-phase1-integrated-'+a.run_id
     owned=None;children=[];handles=[];fixture=False;errors=[];safe_landed=False
     audit=(run/'evidence/flight-host.jsonl').open('x')
     ros='source /opt/ros/jazzy/setup.bash; '
@@ -58,7 +59,6 @@ def main():
     try:
         command(compose+['up','-d','--no-build','--pull','never'],'flight-compose-up.txt',60)
         owned=json.loads(subprocess.check_output(['docker','inspect',*names.values()],text=True,timeout=10))
-        project='gnss-phase1-integrated-'+a.run_id
         if len(owned)!=4 or any(r['Config'].get('Labels',{}).get('com.docker.compose.project')!=project for r in owned):
             owned=None;raise ValueError('Cannot establish owned container identities')
         (run/'evidence/flight-owned.json').write_text(json.dumps(owned,indent=2)+'\n')
@@ -101,7 +101,16 @@ def main():
         # Current-boot aiding is proven independently from the transport's wire
         # counters. No FCU commands/connections; bounded, immutable log snapshots.
         witness_end=time.monotonic()+35;attempt=0;ready=False
+        flight_log = run/'evidence/flight-transport/flight.jsonl'
         while transport.poll() is None and time.monotonic()<witness_end:
+            if ready and flight_log.is_file():
+                with flight_log.open('rb') as raw:
+                    start = max(0, raw.seek(0, 2) - 8192)
+                    raw.seek(start)
+                    complete = raw.read(8192).split(b'\n')[bool(start):-1]
+                if any((entry := json.loads(line)).get('event') == 'flight_transition'
+                       and entry.get('state') == 'ARM' for line in complete):
+                    break
             bins=sorted((run/'state/fcu/logs').glob('*.BIN'))
             if bins:
                 attempt+=1;snapshot=run/'evidence'/('current-fusion-'+str(attempt)+'.BIN')
@@ -109,20 +118,28 @@ def main():
                 if len(data)>32*1024*1024:raise ValueError('Current DataFlash snapshot memory bound exceeded')
                 with snapshot.open('xb') as f:f.write(data)
                 try:
-                    records=decode_dataflash(snapshot)
+                    decode_start = time.monotonic_ns()
+                    records, partial_tail = decode_live_dataflash(snapshot)
+                    decode_ns = time.monotonic_ns() - decode_start
                     trace=run/'evidence/applied.csv'
                     with trace.open('rb') as raw:
                         raw.seek(max(0,trace.stat().st_size-8192));tail=raw.read()
                     lines=tail.split(b'\n')[:-1]
                     latest_applied=int(lines[-1].split(b',')[4])*1000
                     attestation=current_fusion_attestation(records,current,snapshot,latest_applied)
-                except (ValueError,EOFError,struct.error) as exc:
+                except (ValueError,EOFError,IndexError,struct.error) as exc:
                     audit.write(json.dumps(dict(current_fusion='NOT READY',snapshot=snapshot.name,reason=str(exc)))+'\n');audit.flush()
                 else:
                     pending=run/'artifacts/current_fusion_ready.pending'
                     with pending.open('x') as f:json.dump(attestation,f)
                     pending.replace(run/'artifacts/current_fusion_ready.json')
-                    ready=True;break
+                    if not ready:
+                        witness_end = transport_started + LIMITS['preflight_s'] + LIMITS['command_s']
+                    ready=True
+                    audit.write(json.dumps(dict(current_fusion='VERIFIED',
+                        snapshot=snapshot.name, decode_ns=decode_ns, partial_tail_bytes=partial_tail,
+                        fcu_age_ns=latest_applied-attestation['last_fcu_time_ns']))+'\n')
+                    audit.flush()
             time.sleep(.5)
         if not ready:raise RuntimeError('Current-boot live fusion NOT VERIFIED; ARM remains blocked')
         transport.wait(timeout=max(1,120-(time.monotonic()-transport_started)))
@@ -141,13 +158,14 @@ def main():
         order=('transport','vio','fcu','physics') if safe_landed else ('fcu','physics','transport','vio')
         for kind in order:
             try:
-                row=next(r for r in (owned or []) if r['Name'].lstrip('/')==names[kind])
-                current=json.loads(subprocess.check_output(['docker','inspect',names[kind]],text=True,timeout=10))[0]
-                if current['Id']!=row['Id']:raise ValueError('Container replaced; no signal sent')
-                command(['docker','stop','--time','8' if safe_landed else '2',row['Id']],'flight-stop-'+kind+'.txt',15)
-                final=json.loads(subprocess.check_output(['docker','inspect',row['Id']],text=True,timeout=10))[0]
+                expected = (None if owned is None else
+                            next(r['Id'] for r in owned if r['Name'].lstrip('/')==names[kind]))
+                current, = json.loads(subprocess.check_output(['docker','inspect',names[kind]],text=True,timeout=10))
+                container_id = cleanup_container_id(current, names[kind], project, run, expected)
+                command(['docker','stop','--time','8' if safe_landed else '2',container_id],'flight-stop-'+kind+'.txt',15)
+                final, = json.loads(subprocess.check_output(['docker','inspect',container_id],text=True,timeout=10))
                 if final['State']['Running']:raise ValueError('Container still running')
-            except (OSError,ValueError,StopIteration,RuntimeError,subprocess.SubprocessError) as exc:errors.append(str(exc))
+            except (OSError,ValueError,KeyError,StopIteration,RuntimeError,subprocess.SubprocessError) as exc:errors.append(str(exc))
         for proc in children:
             try:proc.wait(timeout=5)
             except subprocess.TimeoutExpired:

@@ -40,10 +40,17 @@ class FlightPolicyTests(unittest.TestCase):
         self.c.tick(self.now,self.params,True,vision,parameters_fresh=True)
 
     def ack(self,cmd,result=0):
-        self.c.observe(self.message('COMMAND_ACK',command=cmd,result=result),self.now)
+        self.c.observe(self.message('COMMAND_ACK',command=cmd,result=result,
+                                    target_system=255,target_component=191),self.now+1)
 
     def preflight(self):
-        for i in range(51):self.feed(i*.1)
+        self.feed(0);self.ack(401)
+        self.c.tick(2,self.params,True,True,parameters_fresh=True)
+        self.now=2;self.ack(179)
+        self.c.tick(4,self.params,True,True,parameters_fresh=True)
+        for i in range(1,51):self.feed(i*.1)
+        self.c.tick(5_000_000_004,self.params,True,True,parameters_fresh=True)
+        self.now=5_000_000_004
         self.assertEqual(self.c.state,'GUIDED')
 
     def climb(self):
@@ -83,11 +90,41 @@ class FlightPolicyTests(unittest.TestCase):
                 finally:audit.close()
             rows=[json.loads(line) for line in path.read_text().splitlines()]
         self.assertEqual([r['event'] for r in rows],['prearm_snapshot','flight_transition','simulation_command_sent'])
-        self.assertEqual([r['host_ns'] for r in rows],[5_000_000_000,5_000_000_000,6_000_000_000])
+        self.assertEqual([r['host_ns'] for r in rows],[5_000_000_004,5_000_000_004,6_000_000_000])
         self.assertEqual(rows[0]['parameters'],self.params)
         self.assertEqual(rows[0]['home'],self.origin)
         self.assertEqual((rows[1]['previous'],rows[1]['state']),('PREFLIGHT','GUIDED'))
         self.assertEqual((rows[2]['command'],rows[2]['params']),(176,[1,4]))
+
+    def test_stale_live_witness_blocks_arm_at_socket(self):
+        source = Path(phase1_transport.__file__)
+        sender = next(node for node in ast.walk(ast.parse(source.read_text()))
+                      if isinstance(node, ast.FunctionDef) and node.name == 'flight_command')
+        params = [1,0,0,0,0,0,0]
+        ns = dict(allowed={400:params}, wire=self.w, enc=self.w.MAVLink(None),
+                  fresh_fusion_witness=lambda **kwargs: False,
+                  tcp=S(send=lambda _: self.fail('ARM reached the fake socket')))
+        exec(compile(ast.Module(body=[sender],type_ignores=[]),str(source),'exec'),ns)
+        with self.assertRaisesRegex(ValueError,'Fresh current DataFlash'):
+            ns['flight_command'](400,params)
+
+    def test_ack_must_follow_matching_request_and_cannot_overlap_or_repeat(self):
+        self.ack(401)
+        self.feed(0)
+        self.assertEqual([cmd for cmd,_ in self.commands], [401])
+        self.c.observe(self.message('COMMAND_ACK',command=401,result=0,
+                                    target_system=255,target_component=191),0)
+        self.c.observe(self.message('COMMAND_ACK',command=401,result=0,
+                                    target_system=1,target_component=1),1)
+        self.feed(.1)
+        self.assertNotIn(401,self.c.acks)
+        with self.assertRaisesRegex(ValueError,'awaiting'):
+            self.c.command(179,[1],now=self.now)
+        self.ack(401)
+        self.feed(.2)
+        self.assertEqual([cmd for cmd,_ in self.commands], [401,179])
+        with self.assertRaisesRegex(ValueError,'Duplicate'):
+            self.c.command(401,now=self.now)
 
     def test_missing_vision_or_prearm_checks_never_arm(self):
         for i in range(451):self.feed(i*.1,vision=False)
@@ -286,6 +323,42 @@ class FusionProofTests(unittest.TestCase):
         path.write_text(json.dumps(plan));route.firmware_sha256='wrong'
         with self.assertRaisesRegex(ValueError,'does not match'):f.load_plan(path,route)
 
+    def test_focused_decoder_preserves_selected_records_and_exposes_truncated_tail(self):
+        import struct
+
+        def fmt(kind, name, layout, columns, size):
+            return b'\xa3\x95\x80' + f.DATAFLASH_FORMAT.pack(kind,size,name,layout,columns)
+
+        msg_format = fmt(42,b'MSG',b'QZ',b'TimeUS,Message',75)
+        att_format = fmt(43,b'ATT',b'Qf',b'TimeUS,Roll',15)
+        message = b'\xa3\x95\x2a' + struct.pack('<Q64s',1_000_000,b'ExternalNav fixture')
+        unrelated = b'\xa3\x95\x2b' + struct.pack('<Qf',1_000_000,0.5)
+        full = msg_format+att_format+message+unrelated+message
+        path = self.root/'snapshot.BIN'
+        path.write_bytes(full)
+        expected = f.decode_dataflash(path)
+        focused, tail = f.decode_live_dataflash(path)
+        self.assertEqual(tail,0)
+        self.assertEqual(focused,expected)
+        path.write_bytes(full + message[:11])
+        focused, tail = f.decode_live_dataflash(path)
+        self.assertEqual(tail,11)
+        self.assertEqual(focused,expected)
+        for data in (full + b'bad', msg_format+att_format+b'\x00'+message,
+                     full+fmt(42,b'MSG',b'Qf',b'TimeUS,Message',15),
+                     full + b'\xa3\x95\xff'):
+            with self.subTest(data=data[-12:]), self.assertRaises(ValueError):
+                f.select_witness_records(data)
+
+    def test_current_witness_must_still_be_fresh_after_slow_decode(self):
+        permit=dict(run_id='current',reference_nonce='ref',clock_epoch='clock',
+                    firmware_sha256='pin',containers={'fcu':'1'*64})
+        fcu_at_copy=6_050_000_000
+        fcu_after_decode=fcu_at_copy+500_000_000
+        f.current_fusion_attestation(self.records,permit,self.bin,fcu_at_copy)
+        with self.assertRaisesRegex(ValueError,'Buffered DataFlash'):
+            f.current_fusion_attestation(self.records,permit,self.bin,fcu_after_decode)
+
     def test_current_boot_source_selection_requires_fresh_raw_fcu_evidence(self):
         permit=dict(run_id='current',reference_nonce='ref',clock_epoch='clock',firmware_sha256='pin',containers={'fcu':'1'*64})
         now=10_000_000_000
@@ -295,6 +368,66 @@ class FusionProofTests(unittest.TestCase):
         with self.assertRaises(ValueError):f.verify_current_attestation(row,permit,now+500_000_001,6_100_000_000)
         with self.assertRaises(ValueError):f.verify_current_attestation(row,dict(permit,clock_epoch='old'),now,6_100_000_000)
         with self.assertRaises(ValueError):f.current_fusion_attestation(self.records,permit,self.bin,9_000_000_000)
+
+    def test_explicit_simulation_subnet_requires_aligned_private_ipv4_28(self):
+        from launch_phase1 import private_simulation_subnet
+        self.assertEqual(private_simulation_subnet('10.249.241.0/28'),'10.249.241.0/28')
+        for value in ('10.249.241.1/28','10.0.0.0/8','8.8.8.0/28','fd00::/64'):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                private_simulation_subnet(value)
+
+    def test_launcher_reserves_same_run_id_once_under_contention(self):
+        from concurrent.futures import ThreadPoolExecutor
+        from threading import Barrier
+        source = Path(runner.__file__).with_name('launch_phase1.py')
+        statements = [node for node in ast.walk(ast.parse(source.read_text()))
+                      if isinstance(node, ast.Expr) and ast.unparse(node.value)
+                      == 'run.mkdir(parents=True, exist_ok=False)']
+        claim = compile(ast.Module(body=statements,type_ignores=[]),str(source),'exec')
+        self.assertEqual(len(statements),1)
+        path = self.root/'reserved'
+        start = Barrier(2)
+
+        def reserve():
+            start.wait(timeout=1)
+            try:
+                exec(claim,dict(run=path))
+            except FileExistsError:
+                return False
+            return True
+
+        with ThreadPoolExecutor(2) as workers:
+            attempts = list(workers.map(lambda _: reserve(),range(2)))
+        self.assertEqual(sorted(attempts), [False,True])
+
+    def test_transport_lock_excludes_second_controller_for_same_run(self):
+        with tempfile.TemporaryDirectory() as temp:
+            first = Path(temp)/'first'
+            other = Path(temp)/'other'
+            (first/'state').mkdir(parents=True)
+            (other/'state').mkdir(parents=True)
+            with phase1_transport.acquire_transport_lock(first):
+                with self.assertRaises(BlockingIOError):
+                    phase1_transport.acquire_transport_lock(first)
+                with phase1_transport.acquire_transport_lock(other):
+                    pass
+            with phase1_transport.acquire_transport_lock(first):
+                pass
+
+    def test_cleanup_never_accepts_foreign_or_replaced_container(self):
+        name = 'gnss-p1-physics-20261119-unit'
+        project = 'gnss-phase1-integrated-20261119-unit'
+        network = 'gnss-p1-integrated-20261119-unit'
+        row = dict(Id='a'*64, Name='/'+name,
+                   Config={'Labels': {'com.docker.compose.project': project}},
+                   Mounts=[dict(Destination='/run/integration',Source=str(self.run.resolve()))])
+        self.assertEqual(runner.cleanup_container_id(row,name,project,self.run),row['Id'])
+        with self.assertRaises(ValueError):
+            runner.cleanup_container_id(row,name,project,self.run,'b'*64)
+        with self.assertRaises(ValueError):
+            runner.cleanup_container_id(row,name,project,self.root)
+        with self.assertRaises(ValueError):
+            runner.cleanup_container_id(row,name,network,self.run)
 
     def test_transport_flight_flag_alone_cannot_open_fcu(self):
         with patch('sys.argv',['phase1_transport.py','--run','unused','--simulation-flight-plan','unused']), \

@@ -7,6 +7,7 @@ inspected DISARMED Gazebo/SITL namespace, never production/flight authority.
 Persistent stores survive restart. MAVROS still connects ONLY to this interlock.
 """
 import argparse
+import fcntl
 from collections import OrderedDict
 import hashlib
 import importlib.util
@@ -26,6 +27,16 @@ from navigation_lifecycle import NavigationLifecycle
 from navigation_egress import VisionEgress
 from vio_frame_bridge import convert
 from vio_adapter import convert_pair,expand_upper_triangle,validate_covariance
+
+
+def acquire_transport_lock(run):
+    lock = (run/'state/transport.lock').open('a')
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        lock.close()
+        raise
+    return lock
 
 
 def fcu_allowed(kind):
@@ -88,6 +99,8 @@ def main():
     if a.simulation_flight_plan is not None and a.simulation_vision_permit is None:
         p.error('Simulation flight cannot bypass the inspected vision boundary')
     if Path(a.output_name).name!=a.output_name:raise ValueError('Output name must be a basename')
+    # Keep this descriptor open until the transport exits. The lock file is never unlinked.
+    transport_lock = acquire_transport_lock(a.run)
     out=a.run/'evidence'/a.output_name;out.mkdir(exist_ok=False)
     recorder=activate(out/'stages.jsonl')
     fault_control=FaultFile(a.fault_file)
@@ -220,9 +233,33 @@ def main():
                 raise ValueError('Flight command outside fixed simulation allowlist')
             packet=wire.MAVLink_command_long_message(1,1,command,0,*params).pack(enc)
             enc.seq=(enc.seq+1)%256
+            if command == wire.MAV_CMD_COMPONENT_ARM_DISARM:
+                if not fresh_fusion_witness(refresh_clock=True):
+                    raise ValueError('Fresh current DataFlash witness required at ARM')
+                checked = time.monotonic_ns()
+                if (simulation.failure or not gate.watchdog(checked)
+                        or last_odom[0] is None or not 0 <= checked-last_odom[0] <= 500_000_000
+                        or flight.last_pair is None or not 0 <= checked-flight.last_pair <= 500_000_000):
+                    raise ValueError('Live VIO and clock required at ARM')
             if tcp.send(packet)!=len(packet):raise OSError('Partial flight command enqueue; STOP required')
             stats['simulation_flight_commands_sent']=stats.get('simulation_flight_commands_sent',0)+1
             log('flight',event='simulation_command_sent',command=command,params=params)
+        def fresh_fusion_witness(*, refresh_clock=False):
+            try:
+                row = read_json(a.run/'artifacts/current_fusion_ready.json')
+                snapshot = (a.run/'evidence'/row['snapshot_name']).resolve()
+                if snapshot.parent != (a.run/'evidence').resolve():
+                    return False
+                if hashlib.sha256(snapshot.read_bytes()).hexdigest() != row['snapshot_sha256']:
+                    return False
+                if refresh_clock:
+                    refresh()
+                now = time.monotonic_ns()
+                latest = mapping.check_freshness(now)
+                return verify_current_attestation(row,simulation.permit,now,latest['target_ns'])
+            except (OSError, ValueError, KeyError, TypeError, AttributeError):
+                return False
+
         flight=FlightController(wire,time.monotonic_ns(),flight_command,lambda **row:log('flight',**row),global_origin=simulation.permit['origin'])
         simulation.heartbeat=FlightHeartbeatGuard(1,1,time.monotonic())
         flight_requests=[1,32,33,193,245]
@@ -498,16 +535,17 @@ def main():
             if flight is None or not simulation.failure:drain()
             if flight is not None:
                 now=time.monotonic_ns()
-                if not current_fusion_ready:
-                    ready_file=a.run/'artifacts/current_fusion_ready.json'
-                    if ready_file.exists():
-                        if not mapping.verified or not mapping.anchors:raise ValueError('Current fusion witness requires verified clock anchors')
-                        current_fusion_ready=verify_current_attestation(read_json(ready_file),simulation.permit,now,mapping.anchors[-1]['target_ns'])
-                        log('flight',event='current_DataFlash_fusion_witness_verified')
+                if not current_fusion_ready and fresh_fusion_witness():
+                    current_fusion_ready = True
+                    log('flight',event='current_DataFlash_fusion_witness_verified')
+                    now = time.monotonic_ns()
                 vision_valid=(not initial_allowed and not simulation.failure and not gate.durable.state['blocked']
                     and flight.last_pair is not None and 0<=now-flight.last_pair<=500_000_000 and gate.watchdog(now))
                 if simulation.failure:flight.emergency(simulation.failure,now)
                 parameter_fresh=all(parameter_times.get(k,-1)>=flight.since for k in (*EXPECTED,'ARMING_CHECK','SERIAL0_PROTOCOL'))
+                if flight.state == 'GUIDED' and parameter_fresh:
+                    parameter_fresh = fresh_fusion_witness()
+                    now = time.monotonic_ns()
                 flight.tick(now,parameter_values,origin_confirmed,vision_valid and current_fusion_ready,parameters_fresh=parameter_fresh)
                 if flight.state=='GUIDED' and flight_param_epoch!=flight.since:
                     parameter_names=list(dict.fromkeys([*EXPECTED,'ARMING_CHECK','SERIAL0_PROTOCOL']))

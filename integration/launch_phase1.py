@@ -7,6 +7,7 @@ Omitting it only prepares files and validates the installed image/artifact IDs.
 """
 import argparse
 import hashlib
+import ipaddress
 import json
 import re
 import shlex
@@ -37,9 +38,19 @@ def validate_vio_dir(directory):
     return directory
 
 
-def validate_branch(branch):
+def validate_branch(branch, *, disarmed_test=False):
+    if disarmed_test and branch == 'test/phase1-run-isolation':
+        return
     if branch not in ('gazebo-sitl-integration', 'phase1-integration-merge'):
         raise ValueError('Unexpected branch; no switching performed')
+
+
+def private_simulation_subnet(value):
+    subnet = ipaddress.IPv4Network(value)
+    ranges = ('10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16')
+    if subnet.prefixlen != 28 or not any(subnet.subnet_of(ipaddress.IPv4Network(r)) for r in ranges):
+        raise ValueError('Require an explicit RFC1918 IPv4 /28 for the internal simulation network')
+    return str(subnet)
 
 
 def validate_run_id(value):
@@ -108,6 +119,18 @@ def install_runtime_world(source, destination):
     return hashlib.sha256(result).hexdigest()
 
 
+def cleanup_container_id(row, name, project, run, expected_id=None):
+    container_id = row['Id']
+    if (len(container_id) != 64 or any(c not in '0123456789abcdef' for c in container_id)
+            or row['Name'].lstrip('/') != name
+            or row['Config'].get('Labels', {}).get('com.docker.compose.project') != project
+            or not any(m.get('Destination') == '/run/integration' and m.get('Source') == str(run.resolve())
+                       for m in row['Mounts'])
+            or (expected_id is not None and container_id != expected_id)):
+        raise ValueError('Container ownership unconfirmed; no signal sent')
+    return container_id
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--run-id', required=True, type=validate_run_id)
@@ -117,10 +140,13 @@ def main():
     parser.add_argument('--runtime-candidate',type=Path,help='Verified native export; PREPARE ONLY unless explicit DISARMED simulation mode is selected')
     parser.add_argument('--gpu-mode',choices=['software','dri','nvidia','wsl'],default='software')
     parser.add_argument('--simulation-disarmed-vision',action='store_true',help='Explicit approval: bounded DISARMED vision to owned Gazebo/SITL only, never flight')
+    parser.add_argument('--simulation-subnet', type=private_simulation_subnet)
     parser.add_argument('--simulation-origin',help='Explicit lat,lon,alt_m for the isolated simulation EKF origin')
     args = parser.parse_args()
     if args.simulation_disarmed_vision and (not args.runtime_candidate or not args.simulation_origin or args.gpu_mode!='nvidia'):
         parser.error('Simulation vision requires native candidate, explicit origin and NVIDIA profile')
+    if args.simulation_subnet and not (args.execute and args.simulation_disarmed_vision):
+        parser.error('Explicit subnet requires DISARMED simulation execution')
     if args.simulation_origin and not args.simulation_disarmed_vision:
         parser.error('Simulation origin requires explicit simulation vision mode')
     origin=None
@@ -143,10 +169,12 @@ def main():
     vio_dir = validate_vio_dir(args.vio_dir if args.vio_dir is not None else INTEGRATION.parent / 'vio')
     run = INTEGRATION / 'phase1_runs' / args.run_id
     names = {kind: f'gnss-p1-{kind}-{args.run_id}' for kind in ('physics', 'fcu', 'vio', 'transport')}
+    project = 'gnss-phase1-integrated-' + args.run_id
     network = 'gnss-p1-integrated-' + args.run_id
     if run.exists():
         raise ValueError('Refuse to overwrite a run, including a prepared-only run')
-    validate_branch(subprocess.check_output(['git', 'branch', '--show-current'], cwd=INTEGRATION, text=True).strip())
+    branch = subprocess.check_output(['git', 'branch', '--show-current'], cwd=INTEGRATION, text=True).strip()
+    validate_branch(branch, disarmed_test=args.execute and args.simulation_disarmed_vision)
     for name in names.values():
         result = subprocess.run(['docker', 'container', 'inspect', name], capture_output=True)
         if result.returncode == 0:
@@ -169,6 +197,7 @@ def main():
     overlay=INTEGRATION/'timesync_patch_runs/20261108/patch_install' if candidate is None else candidate['overlay']
     if not (overlay/'setup.bash').is_file():
         raise ValueError('Tested MAVROS overlay missing; no unpatched fallback')
+    run.mkdir(parents=True, exist_ok=False)
     for subdir in ('models/iris_with_gimbal', 'artifacts', 'evidence', 'state/fcu'):
         (run / subdir).mkdir(parents=True, exist_ok=True)
     for filename in ('model.sdf', 'model.config'):
@@ -204,6 +233,12 @@ def main():
     compose = ['docker', 'compose', '--env-file', str(env_file), '-f', str(INTEGRATION / 'phase1.compose.yaml')]
     if args.gpu_mode!='software':
         compose+=['-f',str(INTEGRATION/'linux_gpu'/('phase1.gpu.'+args.gpu_mode+'.yaml'))]
+    if args.simulation_subnet:
+        override = run/'artifacts/simulation-network.json'
+        with override.open('x') as out:
+            json.dump({'networks': {'isolated': {'internal': True,
+                      'ipam': {'config': [{'subnet': args.simulation_subnet}]}}}}, out)
+        compose += ['-f', str(override)]
     config = subprocess.check_output(compose + ['config'], text=True)
     (run / 'artifacts/resolved-compose.yaml').write_text(config)
     print(run, flush=True)
@@ -227,7 +262,7 @@ def main():
         call(compose + ['up', '-d', '--no-build', '--pull', 'never'], run / 'evidence/compose-up.txt',60 if args.simulation_disarmed_vision else None)
         if args.simulation_disarmed_vision:
             owned=json.loads(subprocess.check_output(['docker','inspect',*names.values()],text=True,timeout=10))
-            if (len(owned)!=4 or any(r['Config'].get('Labels',{}).get('com.docker.compose.project')!=('gnss-phase1-integrated-' + args.run_id)
+            if (len(owned)!=4 or any(r['Config'].get('Labels',{}).get('com.docker.compose.project')!=project
                     or not re.fullmatch('[0-9a-f]{64}',r['Id']) for r in owned)):
                 owned=None
                 raise ValueError('Cannot establish owned simulation container IDs')
@@ -264,14 +299,15 @@ def main():
         for kind in ('transport', 'vio', 'fcu', 'physics'):
             if args.simulation_disarmed_vision:
                 try:
-                    initial=next(r for r in (owned or []) if r['Name'].lstrip('/')==names[kind])
-                    current=json.loads(subprocess.check_output(['docker','inspect',names[kind]],text=True,timeout=10))[0]
-                    if current['Id']!=initial['Id']:raise ValueError('Container name replaced; no signal sent')
-                    result=subprocess.run(['docker','stop','--time','8',initial['Id']],capture_output=True,text=True,timeout=15)
-                    final=json.loads(subprocess.check_output(['docker','inspect',initial['Id']],text=True,timeout=10))[0]
+                    expected = (None if owned is None else
+                                next(r['Id'] for r in owned if r['Name'].lstrip('/')==names[kind]))
+                    current, = json.loads(subprocess.check_output(['docker','inspect',names[kind]],text=True,timeout=10))
+                    container_id = cleanup_container_id(current, names[kind], project, run, expected)
+                    result=subprocess.run(['docker','stop','--time','8',container_id],capture_output=True,text=True,timeout=15)
+                    final, = json.loads(subprocess.check_output(['docker','inspect',container_id],text=True,timeout=10))
                     if result.returncode or final['State']['Running']:raise ValueError('Owned container not confirmed stopped')
-                    audit.write(json.dumps(dict(cleanup_id=initial['Id'],stopped=True))+'\n')
-                except (OSError,ValueError,StopIteration,subprocess.SubprocessError) as exc:
+                    audit.write(json.dumps(dict(cleanup_id=container_id,stopped=True))+'\n')
+                except (OSError,ValueError,KeyError,StopIteration,subprocess.SubprocessError) as exc:
                     cleanup_errors.append(str(exc));audit.write(json.dumps(dict(cleanup=names[kind],error=str(exc)))+'\n')
                 continue
             result = subprocess.run(['docker', 'stop', '--time', '8', names[kind]], capture_output=True, text=True)

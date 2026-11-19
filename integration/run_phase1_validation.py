@@ -140,9 +140,12 @@ finally:
         r=call(['docker','logs',name],check=False)
         with (RUN/'evidence'/(kind+'_container.console.txt')).open('a') as out:
                 out.write('\n=== CONTAINER DIAGNOSTICS ===\n'+r.stdout+r.stderr)
-    for kind in ('transport','vio','fcu','physics'):
-        call(['docker','stop','--time','8',NAMES[kind]],check=False)
+    if not simulation:
+        for kind in ('transport','vio','fcu','physics'):
+            call(['docker','stop','--time','8',NAMES[kind]],check=False)
     for label,child in children:
+        if simulation and child.poll() is None:
+            child.terminate()
         try:child.wait(timeout=12)
         except subprocess.TimeoutExpired:child.terminate();child.wait(timeout=5)
     for f in handles:f.close()

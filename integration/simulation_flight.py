@@ -8,6 +8,8 @@ import argparse
 import json
 import math
 from pathlib import Path
+import struct
+from tempfile import TemporaryDirectory
 import time
 
 from runtime_candidate import ROOT, sha
@@ -109,19 +111,99 @@ def evidence_analysis(run,records):
                 gt_vertical_aid=config.get('vertical_aid'),synthetic=False)
 
 
+WITNESS_RECORDS = {'PARM','MSG','XKFS','XKF4','VISP','VISV'}
+DATAFLASH_FORMAT = struct.Struct('<BB4s16s64s')
+
+
+def select_witness_records(data):
+    """Validate every record boundary and retain the records the witness uses."""
+    from pymavlink.DFReader import DFFormat
+
+    lengths = {0x80: 89}
+    definitions = {}
+    names = {'FMT': 0x80}
+    keep = {0x80}
+    wanted_ids = set()
+    selected = bytearray()
+    offset = count = 0
+    while offset < len(data):
+        remaining = len(data) - offset
+        if remaining < 3:
+            if data[offset:] != b'\xa3\x95'[:remaining]:
+                raise ValueError(f'Invalid DataFlash header at byte {offset}')
+            break
+        if data[offset] != 0xA3 or data[offset+1] != 0x95:
+            raise ValueError(f'Invalid DataFlash header at byte {offset}')
+        kind = data[offset+2]
+        length = lengths.get(kind)
+        if length is None:
+            raise ValueError(f'Undefined DataFlash record type at byte {offset}')
+        if remaining < length:
+            break  # The producer can be midway through its final known record.
+        end = offset + length
+        if kind == 0x80:
+            type_id, size, name, fmt, columns = DATAFLASH_FORMAT.unpack_from(data, offset+3)
+            layout = size, name, fmt, columns
+            if type_id in definitions and definitions[type_id] != layout:
+                raise ValueError('Changed DataFlash record definition')
+            if type_id not in definitions:
+                name_text, fmt_text, columns_text = (
+                    raw.split(b'\0', 1)[0].decode('ascii') for raw in (name, fmt, columns))
+                if ((name_text in names and names[name_text] != type_id)
+                        or (type_id == 0x80 and (name_text, fmt_text) != ('FMT', 'BBnNZ'))):
+                    raise ValueError('Conflicting DataFlash format identity')
+                try:
+                    descriptor = DFFormat(type_id, name_text, size, fmt_text, columns_text)
+                    if (struct.calcsize(descriptor.msg_struct)+3 != size
+                            or len(descriptor.columns) != len(fmt_text)
+                            or (type_id == 0x80 and size != 89)):
+                        raise ValueError('Invalid DataFlash record size or columns')
+                except (KeyError, IndexError, struct.error) as exc:
+                    raise ValueError('Invalid DataFlash record definition') from exc
+                definitions[type_id] = layout
+                names[name_text] = type_id
+                lengths[type_id] = size
+                if name_text in WITNESS_RECORDS:
+                    wanted_ids.add(type_id)
+                if name_text in WITNESS_RECORDS or name_text in {'FMTU','UNIT','MULT'}:
+                    keep.add(type_id)
+        if kind in keep:
+            selected.extend(data[offset:end])
+            count += kind in wanted_ids
+        offset = end
+    return selected, len(data)-offset, count
+
+
+def decode_live_dataflash(snapshot):
+    """Decode a validated complete prefix of a live snapshot. Keep the raw BIN."""
+    with snapshot.open('rb') as raw:
+        data = raw.read(32*1024*1024+1)
+    if len(data) > 32*1024*1024:
+        raise ValueError('Live DataFlash snapshot memory bound exceeded')
+    selected, tail, count = select_witness_records(data)
+    if not count:
+        raise ValueError('No complete fusion witness records in DataFlash snapshot')
+    with TemporaryDirectory(prefix='phase1-witness-') as scratch:
+        compact = Path(scratch)/'witness.BIN'
+        compact.write_bytes(selected)
+        records = decode_dataflash(compact)
+    if len(records) != count:
+        raise ValueError('DataFlash decoder omitted a complete witness record')
+    return records, tail
+
+
 def decode_dataflash(bin_path):
     """A file decoder only; this API must never receive a connection string."""
     bin_path=Path(bin_path)
     if not bin_path.is_file() or bin_path.suffix!='.BIN':raise ValueError('Require an actual DataFlash BIN file')
     from pymavlink import mavutil
     connection=mavutil.mavlink_connection(str(bin_path));records=[]
-    wanted={'PARM','MSG','XKFS','XKF4','VISP','VISV'}
     try:
         while True:
             m=connection.recv_match()
             if m is None:break
             if m.get_type()=='BAD_DATA':raise ValueError('Corrupt DataFlash evidence')
-            if m.get_type() in wanted:records.append(m.to_dict())
+            if m.get_type() in WITNESS_RECORDS:records.append(m.to_dict())
     finally:connection.close()
     return records
 
@@ -219,6 +301,7 @@ def current_fusion_attestation(records,permit,snapshot,latest_applied_ns):
     return dict(schema=1,scope='current-simulation-fusion',run_id=permit['run_id'],
                 reference_nonce=permit['reference_nonce'],clock_epoch=permit['clock_epoch'],
                 firmware_sha256=permit['firmware_sha256'],fcu_container_id=permit['containers']['fcu'],
+                snapshot_name=snapshot.name, source_hashes=permit.get('source_hashes'),
                 snapshot_sha256=sha(snapshot),last_fcu_time_ns=hi*1000,produced_host_ns=time.monotonic_ns())
 
 
@@ -226,6 +309,7 @@ def verify_current_attestation(row,permit,now,latest_fcu_ns):
     if (row.get('schema')!=1 or row.get('scope')!='current-simulation-fusion' or
             any(row.get(k)!=permit[k] for k in ('run_id','reference_nonce','clock_epoch','firmware_sha256')) or
             row.get('fcu_container_id')!=permit['containers']['fcu'] or
+            row.get('source_hashes')!=permit.get('source_hashes') or
             type(row.get('last_fcu_time_ns')) is not int or
             not -20_000_000<=latest_fcu_ns-row['last_fcu_time_ns']<=500_000_000 or
             type(row.get('produced_host_ns')) is not int or not 0<=now-row['produced_host_ns']<=500_000_000):
@@ -258,24 +342,35 @@ class FlightController:
         self.prearm_requested=False;self.done=False;self.result='NOT TESTED';self.origin=None
         self.global_origin=global_origin
         self.last_tick=None
+        self.command_times={}
+        self.pending_command=None
 
     def transition(self,state,now):
         self.record(event='flight_transition',previous=self.state,state=state,host_ns=now)
         self.state=state;self.since=now
 
-    def command(self,command,params=()):
-        self.acks.pop(command,None)
+    def command(self,command,params=(),*,now):
+        if command in self.command_times:
+            raise ValueError('Duplicate simulation command')
+        if self.pending_command is not None and command != self.wire.MAV_CMD_NAV_LAND:
+            raise ValueError('Another simulation command is awaiting its ACK')
         self.pending_command=command
+        self.command_times[command]=now
         self.send(command,list(params)+[0.]*(7-len(params)))
 
     def observe(self,msg,now):
         if (msg.get_srcSystem(),msg.get_srcComponent())!=(1,1):return
         kind=msg.get_type();self.telemetry[kind]=(msg,now)
         if kind=='COMMAND_ACK':
+            if (msg.command != self.pending_command or now <= self.command_times[msg.command]
+                    or (msg.target_system, msg.target_component) != (255, 191)):
+                return
             self.acks[msg.command]=msg.result
+            if msg.result != 5:
+                self.pending_command = None
             if msg.command==self.wire.MAV_CMD_NAV_LAND and msg.result not in (0,5) and self.state in ('LAND','EMERGENCY_LAND'):
                 self.failure=self.failure or 'LAND command rejected';self.done=True;self.result='FAIL';self.transition('STOP',now)
-            if msg.command==getattr(self,'pending_command',None) and msg.result not in (0,5) and self.state not in ('LAND','EMERGENCY_LAND'):
+            if msg.result not in (0,5) and self.state not in ('LAND','EMERGENCY_LAND','STOP'):
                 self.emergency('Command rejected: '+str(msg.command),now)
         if kind=='HEARTBEAT':
             armed=bool(msg.base_mode&128)
@@ -316,7 +411,7 @@ class FlightController:
             # ARM may be in flight even before the first armed heartbeat.
             if self.arm_expected or self.armed_seen:
                 try:
-                    if self.land_start is None:self.command(self.wire.MAV_CMD_NAV_LAND)
+                    if self.land_start is None:self.command(self.wire.MAV_CMD_NAV_LAND,now=now)
                 except OSError:
                     self.done=True;self.result='FAIL';self.transition('STOP',now);return
                 if self.land_start is None:self.land_start=now
@@ -358,9 +453,14 @@ class FlightController:
             hb,alt,local=self.healthy(now,parameters,origin_confirmed)
             if not vision_valid:raise ValueError('Waiting for live camera VIO/clock/permission')
             if self.state=='PREFLIGHT' and not self.prearm_requested:
-                self.command(self.wire.MAV_CMD_RUN_PREARM_CHECKS);self.prearm_requested=True
-            if self.state=='PREFLIGHT' and not self.home_requested:
-                self.command(self.wire.MAV_CMD_DO_SET_HOME,[1]);self.home_requested=True
+                self.command(self.wire.MAV_CMD_RUN_PREARM_CHECKS,now=now);self.prearm_requested=True
+            if self.state=='PREFLIGHT':
+                if self.acks.get(self.wire.MAV_CMD_RUN_PREARM_CHECKS)!=0:
+                    raise ValueError('Waiting for successful pre-arm ACK')
+                if not self.home_requested:
+                    self.command(self.wire.MAV_CMD_DO_SET_HOME,[1],now=now);self.home_requested=True
+                if self.acks.get(self.wire.MAV_CMD_DO_SET_HOME)!=0:
+                    raise ValueError('Waiting for successful HOME ACK')
             home=self.fresh('HOME_POSITION',now,5_000_000_000)
             if (not -900000000<=home.latitude<=900000000 or not -1800000000<=home.longitude<=1800000000 or
                     (home.latitude,home.longitude)==(0,0)):raise ValueError('Invalid HOME_POSITION')
@@ -389,20 +489,20 @@ class FlightController:
                 self.record(event='prearm_snapshot',host_ns=now,parameters=dict(parameters),vision_valid=True,
                     ekf_flags=status.flags,velocity_ratio=status.velocity_variance,position_ratio=status.pos_horiz_variance,
                     relative_alt_m=alt,home=[home.latitude,home.longitude,home.altitude])
-                self.command(self.wire.MAV_CMD_DO_SET_MODE,[1,4]);self.transition('GUIDED',now)
+                self.command(self.wire.MAV_CMD_DO_SET_MODE,[1,4],now=now);self.transition('GUIDED',now)
         elif self.state=='GUIDED':
             if hb.custom_mode==4 and self.acks.get(self.wire.MAV_CMD_DO_SET_MODE)==0 and parameters_fresh:
-                self.arm_expected=True;self.command(self.wire.MAV_CMD_COMPONENT_ARM_DISARM,[1,0]);self.transition('ARM',now)
+                self.arm_expected=True;self.command(self.wire.MAV_CMD_COMPONENT_ARM_DISARM,[1,0],now=now);self.transition('ARM',now)
         elif self.state=='ARM':
             if hb.base_mode&128 and self.acks.get(self.wire.MAV_CMD_COMPONENT_ARM_DISARM)==0:
-                self.command(self.wire.MAV_CMD_NAV_TAKEOFF,[0,0,0,0,0,0,LIMITS['target_alt_m']]);self.transition('CLIMB',now)
+                self.command(self.wire.MAV_CMD_NAV_TAKEOFF,[0,0,0,0,0,0,LIMITS['target_alt_m']],now=now);self.transition('CLIMB',now)
         elif self.state=='CLIMB':
             if self.acks.get(self.wire.MAV_CMD_NAV_TAKEOFF)==0 and abs(alt-LIMITS['target_alt_m'])<=.15 and abs(local.vz)<=.2:
                 self.transition('HOVER',now)
         elif self.state=='HOVER':
             if abs(alt-LIMITS['target_alt_m'])>.2:self.emergency('Hover altitude envelope',now);return
             if now-self.since>=int(LIMITS['hover_s']*1e9):
-                self.command(self.wire.MAV_CMD_NAV_LAND);self.land_start=now;self.transition('LAND',now)
+                self.command(self.wire.MAV_CMD_NAV_LAND,now=now);self.land_start=now;self.transition('LAND',now)
 
 
 if __name__=='__main__':
