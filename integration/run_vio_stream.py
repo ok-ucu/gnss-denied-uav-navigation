@@ -65,6 +65,36 @@ def clock_status(stamp, clock, now=None, limit=.2):
         ipc_delivery_s=None if 'ipc_received_monotonic_s' not in clock else clock['ipc_received_monotonic_s']-clock['arrival_monotonic_s'])
 
 
+def await_frame_clock(clocks, stamp, clock, processing_s, started):
+    """Give the independent clock callback one short opportunity to catch up."""
+    if clock is None:
+        return None
+    status = clock_status(stamp, clock)
+    if status['reasons'] != ['simulation clock behind frame']:
+        return clock
+    slack = PUBLICATION_MAX_AGE_S - (processing_s or 0.)
+    deadline = min(started + slack, time.monotonic() + .005)
+    while (remaining := deadline - time.monotonic()) > 0:
+        time.sleep(min(remaining, .0005))
+        if time.monotonic() >= deadline:
+            break
+        sample = clocks.latest()  # Includes the existing epoch and IPC health checks.
+        if sample is not None and sample['t'] >= stamp:
+            return sample
+    return clock
+
+
+def publication_block(gate, clock_check, odom_matches, epoch_matches, min_odom, min_epoch):
+    """Separate estimator quality from downstream delivery eligibility."""
+    if not clock_check['valid']:
+        reason = 'stale at publication'
+        gate.block(reason, clock_check['frame_sim_s'], clock_check['validation_host_s'])
+        return reason
+    if odom_matches < min_odom or epoch_matches < min_epoch:
+        return 'waiting for downstream DDS discovery'
+    return None
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--output-dir', type=Path, required=True)
@@ -372,6 +402,12 @@ def main():
             if state['previous_t'] is not None and t <= state['previous_t']:
                 block('camera timestamp reset', t, reset=True)
                 raise ValueError('camera timestamp reset')
+            if clock_start is not None and clock_start['t'] < t:
+                wait_started = time.monotonic()
+                sample = await_frame_clock(buffers['clocks'], t, clock_start,
+                                           admission.expected(), wall)
+                row['clock_catchup'] = dict(initial_sim_s=clock_start['t'], observed_sim_s=sample['t'],
+                                            wall_s=time.monotonic()-wait_started)
             with critical_stage('source_snapshot'):
                 imu = buffers['imu'].snapshot()
                 poses = buffers['poses'].snapshot()
@@ -574,12 +610,11 @@ def main():
                 epoch_matches=epoch_pub.get_subscription_count()
                 row.update(odom_subscribers=odom_matches,epoch_subscribers=epoch_matches)
                 if a.profile:row['publication_check_age_sim_s']=current_clock['t']-t
-                if odom_matches<a.min_odom_subscribers or epoch_matches<a.min_epoch_subscribers:
-                    block('waiting for downstream DDS discovery',t);row['ready']=False
-                elif not row['publication_clock_check']['valid']:
-                    block('stale at publication', t)
-                    row['ready'] = False
-                    row['error'] = 'stale at publication'
+                reason = publication_block(gate, row['publication_clock_check'], odom_matches, epoch_matches,
+                                           a.min_odom_subscribers, a.min_epoch_subscribers)
+                if reason is not None:
+                    row['error'] = reason
+                    row['ready'] = gate.ready
                 else:
                     output_node.t = t
                     with critical_stage('source_odom_publish'):
