@@ -376,6 +376,33 @@ class FusionProofTests(unittest.TestCase):
             with self.subTest(value=value), self.assertRaises(ValueError):
                 private_simulation_subnet(value)
 
+    def test_simulation_subnet_rejects_docker_conflicts_and_repeat_use(self):
+        import launch_phase1
+
+        subnet = '10.249.241.0/28'
+        occupied = [{'Name':'prior-run', 'IPAM':{'Config':[{'Subnet':subnet}]}}]
+        with patch.object(launch_phase1.subprocess, 'check_output',
+                          side_effect=['', '[{"dst":"default"}]', 'network-id\n', json.dumps(occupied)]):
+            launch_phase1.verify_simulation_subnet(subnet)
+            with self.assertRaisesRegex(ValueError, 'overlaps Docker network prior-run'):
+                launch_phase1.verify_simulation_subnet(subnet)
+
+    def test_simulation_subnet_rejects_vpn_or_host_route(self):
+        import launch_phase1
+
+        for dev in ('tun0', 'eth0'):
+            with self.subTest(dev=dev), patch.object(launch_phase1.subprocess, 'check_output',
+                    side_effect=['', json.dumps([{'dst':'10.249.240.0/20', 'dev':dev}])]):
+                with self.assertRaisesRegex(ValueError, f'overlaps host route.*{dev}'):
+                    launch_phase1.verify_simulation_subnet('10.249.241.0/28')
+
+    def test_simulation_subnet_override_keeps_network_internal(self):
+        import launch_phase1
+
+        override = launch_phase1.simulation_network_override('10.249.241.0/28')
+        self.assertEqual(override, {'networks': {'isolated': {'internal': True,
+                         'ipam': {'config': [{'subnet':'10.249.241.0/28'}]}}}})
+
     def test_launcher_reserves_same_run_id_once_under_contention(self):
         from concurrent.futures import ThreadPoolExecutor
         from threading import Barrier

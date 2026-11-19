@@ -11,9 +11,10 @@ import struct
 import sys
 import time
 
-from launch_phase1 import cleanup_container_id, validate_run_id, validate_vio_dir
+from launch_phase1 import (cleanup_container_id, private_simulation_subnet, simulation_network_override,
+                           validate_run_id, validate_vio_dir, verify_simulation_subnet)
 from runtime_candidate import ROOT, load_candidate, sha
-from simulation_vision import prepare_permit, origin_values
+from simulation_vision import BOUND_SOURCES, prepare_permit, origin_values
 from simulation_flight import verify_proof, decode_live_dataflash, current_fusion_attestation, SCOPE, LIMITS
 
 
@@ -24,9 +25,12 @@ def main():
     p.add_argument('--vio-dir',type=Path,required=True)
     p.add_argument('--fusion-proof',type=Path,required=True)
     p.add_argument('--origin',required=True,help='Explicit simulation lat,lon,alt_m')
+    p.add_argument('--simulation-subnet', type=private_simulation_subnet, help='Explicit private IPv4 /28 for the internal SITL network')
     p.add_argument('--execute-simulation-flight',action='store_true',help='SEPARATE APPROVAL REQUIRED: may ARM ONLY this new owned SITL')
     a=p.parse_args()
     baseline,permit=verify_proof(a.fusion_proof)
+    if permit['source_hashes'] != {name: sha(ROOT / name) for name in BOUND_SOURCES}:
+        raise ValueError('DISARMED fusion source stack changed; collect a fresh DISARMED proof')
     candidate=load_candidate(a.runtime_candidate);vio=validate_vio_dir(a.vio_dir)
     origin=list(map(float,a.origin.split(',')))
     if candidate['firmware_sha256']!=permit['firmware_sha256'] or origin_values(origin)!=permit['origin']:
@@ -35,13 +39,22 @@ def main():
         print('OFFLINE ADMISSION ONLY; no containers/ARM/flight. Linux live preflight remains required.');return
     if sys.platform!='linux':raise ValueError('Execution requires the separately approved Linux NVIDIA host')
     # Preparation only; this never invokes the DISARMED validation runtime.
-    subprocess.run([sys.executable,'-B',str(ROOT/'launch_phase1.py'),'--run-id',a.run_id,
+    prepare = [sys.executable,'-B',str(ROOT/'launch_phase1.py'),'--run-id',a.run_id,
         '--runtime-candidate',str(a.runtime_candidate),'--vio-dir',str(vio),'--gpu-mode','nvidia',
-        '--isolated-imu','--simulation-disarmed-vision','--simulation-origin='+a.origin],check=True,timeout=30)
+        '--isolated-imu','--simulation-disarmed-vision','--simulation-origin='+a.origin]
+    if a.simulation_subnet:
+        prepare += ['--simulation-subnet', a.simulation_subnet]
+    subprocess.run(prepare,check=True,timeout=30)
     run=ROOT/'phase1_runs'/a.run_id
     names={k:'gnss-p1-'+k+'-'+a.run_id for k in ('physics','fcu','vio','transport')}
     compose=['docker','compose','--env-file',str(run/'compose.env'),'-f',str(ROOT/'phase1.compose.yaml'),
              '-f',str(ROOT/'linux_gpu/phase1.gpu.nvidia.yaml')]
+    if a.simulation_subnet:
+        override = run/'artifacts/simulation-network.json'
+        if json.loads(override.read_text()) != simulation_network_override(a.simulation_subnet):
+            raise ValueError('Prepared internal simulation subnet override does not match the request')
+        verify_simulation_subnet(a.simulation_subnet)
+        compose += ['-f',str(override)]
     project='gnss-phase1-integrated-'+a.run_id
     owned=None;children=[];handles=[];fixture=False;errors=[];safe_landed=False
     audit=(run/'evidence/flight-host.jsonl').open('x')

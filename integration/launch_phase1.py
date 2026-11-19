@@ -53,6 +53,32 @@ def private_simulation_subnet(value):
     return str(subnet)
 
 
+def verify_simulation_subnet(value):
+    subnet = ipaddress.IPv4Network(private_simulation_subnet(value))
+    ids = subprocess.check_output(['docker', 'network', 'ls', '-q'], text=True, timeout=10).split()
+    networks = (json.loads(subprocess.check_output(['docker', 'network', 'inspect', *ids],
+                                                  text=True, timeout=10)) if ids else [])
+    for network in networks:
+        for entry in (network['IPAM'].get('Config') or []):
+            existing = ipaddress.ip_network(entry['Subnet'])
+            if existing.version == 4 and subnet.overlaps(existing):
+                raise ValueError(f'Simulation subnet {subnet} overlaps Docker network {network["Name"]} ({existing})')
+    routes = json.loads(subprocess.check_output(['ip', '-j', '-4', 'route', 'show', 'table', 'all'],
+                                                text=True, timeout=10))
+    for route in routes:
+        destination = route['dst']
+        if destination in ('default', '0.0.0.0/0'):
+            continue
+        if subnet.overlaps(ipaddress.IPv4Network(destination, strict=False)):
+            raise ValueError(f'Simulation subnet {subnet} overlaps host route {destination} '
+                             f'({route.get("dev", "no device")})')
+
+
+def simulation_network_override(subnet):
+    return {'networks': {'isolated': {'internal': True,
+            'ipam': {'config': [{'subnet': private_simulation_subnet(subnet)}]}}}}
+
+
 def validate_run_id(value):
     if not re.fullmatch(r'[0-9]{8}-[a-z0-9]+', value):
         raise ValueError('Use a new ID such as 20261110-check1')
@@ -145,8 +171,8 @@ def main():
     args = parser.parse_args()
     if args.simulation_disarmed_vision and (not args.runtime_candidate or not args.simulation_origin or args.gpu_mode!='nvidia'):
         parser.error('Simulation vision requires native candidate, explicit origin and NVIDIA profile')
-    if args.simulation_subnet and not (args.execute and args.simulation_disarmed_vision):
-        parser.error('Explicit subnet requires DISARMED simulation execution')
+    if args.simulation_subnet and not args.simulation_disarmed_vision:
+        parser.error('Explicit subnet requires the DISARMED simulation route')
     if args.simulation_origin and not args.simulation_disarmed_vision:
         parser.error('Simulation origin requires explicit simulation vision mode')
     origin=None
@@ -175,6 +201,8 @@ def main():
         raise ValueError('Refuse to overwrite a run, including a prepared-only run')
     branch = subprocess.check_output(['git', 'branch', '--show-current'], cwd=INTEGRATION, text=True).strip()
     validate_branch(branch, disarmed_test=args.execute and args.simulation_disarmed_vision)
+    if args.simulation_subnet:
+        verify_simulation_subnet(args.simulation_subnet)
     for name in names.values():
         result = subprocess.run(['docker', 'container', 'inspect', name], capture_output=True)
         if result.returncode == 0:
@@ -236,8 +264,7 @@ def main():
     if args.simulation_subnet:
         override = run/'artifacts/simulation-network.json'
         with override.open('x') as out:
-            json.dump({'networks': {'isolated': {'internal': True,
-                      'ipam': {'config': [{'subnet': args.simulation_subnet}]}}}}, out)
+            json.dump(simulation_network_override(args.simulation_subnet), out)
         compose += ['-f', str(override)]
     config = subprocess.check_output(compose + ['config'], text=True)
     (run / 'artifacts/resolved-compose.yaml').write_text(config)
