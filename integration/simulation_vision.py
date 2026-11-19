@@ -25,6 +25,21 @@ BOUND_SOURCES = ('phase1_transport.py', 'simulation_vision.py', 'physics_clock_m
                  'phase1.compose.yaml', 'linux_gpu/phase1.gpu.nvidia.yaml')
 
 
+def record_local_pair_half(expected, kind, local_send):
+    """Return one completion record after two validated local socket writes."""
+    halves = expected.setdefault('local_wire_halves', {})
+    if kind not in KINDS or kind in halves:
+        return None
+    halves[kind] = local_send['end_host_ns']
+    if halves.keys() != KINDS:
+        return None
+    meta = expected['meta']
+    return dict(event='simulation_local_pair_complete', acquisition_ns=meta['acquisition_ns'],
+                fcu_ns=meta['fcu_ns'], host_ns=max(halves.values()), half_end_host_ns=dict(halves),
+                reference=meta['reference'], producer=meta['producer'], epoch=meta['epoch'])
+
+
+
 def process_identity():
     return dict(netns=os.readlink('/proc/self/ns/net'),
                 boot_id=Path('/proc/sys/kernel/random/boot_id').read_text().strip(),

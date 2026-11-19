@@ -111,7 +111,7 @@ def main():
     if a.simulation_vision_permit is not None:
         if a.initialize_capture_reference is not None or a.fault_file is not None:
             raise ValueError('Simulation fusion cannot reuse capture authorization or fault injection')
-        from simulation_vision import SimulationVisionRoute
+        from simulation_vision import SimulationVisionRoute, record_local_pair_half
         simulation=SimulationVisionRoute(a.run,a.simulation_vision_permit)
     # New preparation binds the exact copied firmware. Historical runs keep
     # their legacy path; neither path admits an unknown hash to the mapper.
@@ -527,6 +527,10 @@ def main():
                             clock=clock_at_boundary,
                             forwarded_to_fcu=forwarded,global_forwarding_enabled=False,
                             simulation_send=None if simulation is None else simulation.last_send)
+                        if simulation is not None and flight is None and valid and forwarded and ex:
+                            completion = record_local_pair_half(ex, kind, simulation.last_send)
+                            if completion is not None:
+                                log('events', **completion)
                         if valid and ex:
                             ex['valid_seen'].add(kind)
                             if len(ex['valid_seen'])==2:

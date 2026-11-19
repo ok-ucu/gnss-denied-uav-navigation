@@ -95,6 +95,19 @@ def publication_block(gate, clock_check, odom_matches, epoch_matches, min_odom, 
     return None
 
 
+def rejection_evidence(row, *, session, epoch, stamp_ns, host_ns):
+    """Record an evaluated frame verdict for audit, with no admission authority."""
+    reason = row.get('skip_reason')
+    if (row.get('published') is not False or row.get('frontend_available') is None
+            or row.get('session') != session or row.get('epoch') != epoch
+            or reason not in ('inliers', 'contrast', 'distributed flow disagreement/unavailable',
+                              'flow inconsistent with IMU prediction / aliased')):
+        return None
+    return dict(session=session, epoch=epoch, acquisition_ns=stamp_ns,
+                decision_host_ns=host_ns, reason=reason, injected_fault=row.get('fault'))
+
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--output-dir', type=Path, required=True)
@@ -679,6 +692,10 @@ def main():
             # Every unpublished frame names its reason in stream.jsonl; the
             # rate-limited skip log summarises them without flooding.
             row['skip_reason'] = row.get('error') or gate.reason or 'not ready'
+            verdict = rejection_evidence(row, session=session, epoch=state['recoveries'],
+                                         stamp_ns=round(t*1e9), host_ns=time.monotonic_ns())
+            if verdict is not None:
+                row['rejection_evidence'] = verdict
             audit_row = row.get('audit') or {}
             skip_log(row['skip_reason'], round(t*1e9), 'vio_source', t=t, gate_ready=gate.ready,
                      gate_count=gate.count, inliers=row.get('inliers'), frontend_available=row.get('frontend_available'),
