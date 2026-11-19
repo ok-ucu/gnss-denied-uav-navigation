@@ -53,9 +53,13 @@ def generate(out_dir, seconds=5.0, fps=30, imu_hz=100, gps_hz=5):
     for i in range(n_frames):
         t_s = i * dt_cam
         t_ns = t0_ns + int(t_s * 1e9)
-        # Зсув у текстурі по осі Y кадру (рух дрона вперед => текстура рухається назад/вниз по кадру)
+        # Зсув у текстурі по осі Y кадру (рух дрона вперед => текстура рухається назад/вниз по кадру).
+        # Вікно кадру зсувається ВГОРУ по текстурі (y0 зменшується), тому вміст кадру
+        # рухається вниз (+y), як вимагають T_cam_imu (calibration/camera_params.json),
+        # монтаж у vio/vio_frontend.py та gazebo/verify_sync_axes.py.
         shift_y = int((vx * t_s * fx) / height)
-        y0 = 200 + (shift_y % (tex_h - h - 400))
+        span = tex_h - h - 400
+        y0 = 200 + span - (shift_y % span)
         x0 = 200
         frame = texture[y0:y0 + h, x0:x0 + w]
         fname = f"{t_ns}.png"

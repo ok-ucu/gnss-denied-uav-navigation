@@ -16,6 +16,9 @@ def test_simulation_regression():
     assert passed, f"Регресійний тест не пройшов: {stats}"
     assert stats["tracking_ratio"] >= 85.0
     assert stats["mean_inliers"] >= 30.0
+    # sample_flight: 2 m/s NORTH. Checks the direction too (a reversed camera axis gives -2).
+    assert stats["v_mean_x"] == pytest.approx(2.0, abs=0.3), f"forward speed {stats['v_mean_x']:.2f} m/s, expected +2.0"
+    assert abs(stats["v_mean_y"]) <= 0.3, f"lateral speed {stats['v_mean_y']:.2f} m/s, expected 0"
 
 
 def test_frontend_selection_is_explicit():

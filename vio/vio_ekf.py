@@ -11,6 +11,7 @@ from pymavlink import mavutil
 
 from vio_core import G, QualityMonitor, VioEKF, rot_body_to_ned
 from vio_frontend import FlowFrontend
+from vio_guards import FrameAdmission, VelocityInitGuard, safe_predict
 
 ORIGIN = (-35.363261, 149.165230, 584.0)
 MIN_SEND_Q = 0.1      # нижче цієї якості в ArduPilot нічого не шлемо
@@ -142,6 +143,8 @@ def main():
     ekf = VioEKF()
     monitor = QualityMonitor()
     sensor = SimVisualSensor(dropout=args.dropout)
+    admission = FrameAdmission()      # кадри надто близько / не по порядку / порожні - до фронтенду не йдуть
+    init_guard = VelocityInitGuard()  # першу швидкість у фільтр - лише після підтвердження
     cap = None
     ros = None
     frontend = None
@@ -260,15 +263,13 @@ def main():
                     if have_att and last_imu_t is not None:
                         dt = t_imu - last_imu_t
                         dt_max = max(dt_max, dt)
-                        if 0.0 < dt < 0.2:
-                            ekf.predict(f, rot_body_to_ned(roll, pitch, yaw), dt)
+                        if 0.0 < dt < 0.2 and safe_predict(ekf, f, rot_body_to_ned(roll, pitch, yaw), dt):
                             n_pred += 1
-                        elif 0.2 <= dt < 3.0:
+                        elif 0.2 <= dt < 3.0 and safe_predict(ekf, None, None, dt, kinematic=True):
                             # IMU надто рідкий: не зупиняємо інтегрування позиції
-                            ekf.predict_kinematic(dt)
                             n_kin += 1
                         else:
-                            n_skip += 1       # dt <= 0 або величезний стрибок
+                            n_skip += 1       # dt <= 0, величезний стрибок або NaN у вимірі/орієнтації
                     gyro = np.array([msg.xgyro, msg.ygyro, msg.zgyro]) / 1000.0
                     last_imu_t = t_imu
                 elif ty == "SIMSTATE":
@@ -363,6 +364,8 @@ def main():
                             print("Камера не віддає кадри")
                             eof_reported = True
 
+            if frame is not None and not admission.admit(frame[0], frame[1]):
+                frame = None                   # відкинуто до фронтенду: його опорний кадр не змінюється
             if frame is not None:
                 gray, t_frame, t_wall, t_age = frame
                 n_cam += 1
@@ -384,7 +387,7 @@ def main():
                     rejected += 1
                 else:
                     sigma_scale = res.sigma_scale
-                    ok, last_nis = ekf.update_velocity_xy(res.v_xy, sigma_scale)
+                    ok, last_nis = init_guard.fuse_xy(ekf, res.v_xy, sigma_scale)
                     monitor.push(ok, now)
                     accepted += ok
                     rejected += (not ok)
@@ -397,7 +400,7 @@ def main():
                 last_vis = now
                 v = sensor.measure(now)
                 if v is not None:
-                    ok, last_nis = ekf.update_velocity(v)
+                    ok, last_nis = init_guard.fuse(ekf, v)
                     monitor.push(ok, now)
                     accepted += ok
                     rejected += (not ok)
@@ -490,7 +493,8 @@ def main():
                     if ros is not None:
                         extra = (f", усього {ros.n_frames}, непідтримане кодування {ros.n_unsupported}, "
                                  f"поза межами віку {ros.n_bad_age}")
-                    print(f"КАМЕРА {n_cam} кадр/с (stamp-час/реальний = {rtf:.2f}){extra}")
+                    print(f"КАМЕРА {n_cam} кадр/с (stamp-час/реальний = {rtf:.2f}), "
+                          f"відкинуто до фронтенду всього {admission.dropped}{extra}")
                     if n_cam == 0 and now - t0 > 5.0:
                         print("!!! Кадрів немає: перевір топік (ros2 topic hz), міст Gazebo->ROS, "
                               "QoS та чи не на паузі симуляція")

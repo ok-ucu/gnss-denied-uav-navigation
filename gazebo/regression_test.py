@@ -8,7 +8,9 @@
 Вимоги:
 - Відсоток успішно оброблених кадрів >= 85%
 - Середня кількість інлаєрів (inliers) >= 30
-- Оцінка середньої швидкості (діагностична метрика)
+- Середня швидкість потоку збігається з еталоном local_position.csv (vx, vy NED)
+  у межах 0.3 м/с - перевіряє і модуль, і НАПРЯМОК (знак осей камери); якщо
+  еталона в датасеті немає, критерій пропускається
 
 Використання:
     python3 regression_test.py [--dataset ../recordings/sample_flight]
@@ -127,16 +129,30 @@ def run_regression_test(dataset_path, camera_params_path=None, *, synthetic_fall
     v_mean_y = float(np.mean([v[1] for v in v_estimates])) if v_estimates else 0.0
     print(f"Оцінка середньої шв.: Vx={v_mean_x:.2f} м/с, Vy={v_mean_y:.2f} м/с")
 
+    # Еталон швидкості: LOCAL_POSITION_NED з датасету (кадри обробляються з R = I,
+    # тобто для рівного польоту з курсом 0 це швидкість у NED)
+    gt_v = None
+    if len(ds._loc):
+        gt_v = ds._loc[:, 3:5].mean(axis=0)
+        print(f"Еталон (local_position): Vx={gt_v[0]:.2f} м/с, Vy={gt_v[1]:.2f} м/с")
+
     # Критерії успішності тесту
     crit_tracking = tracking_ratio >= 85.0
     crit_inliers = mean_inliers >= 30.0
+    v_err = None if gt_v is None or not v_estimates else float(np.hypot(v_mean_x - gt_v[0], v_mean_y - gt_v[1]))
+    crit_velocity = True if gt_v is None else (v_err is not None and v_err <= 0.3)
 
     print("--------------------------------------------------")
     print(f"Критерій відстеження (>= 85%):    [{'УСПІХ' if crit_tracking else 'ПРОВАЛ'}]")
     print(f"Критерій щільності точок (>= 30): [{'УСПІХ' if crit_inliers else 'ПРОВАЛ'}]")
+    if gt_v is None:
+        print("Критерій швидкості (<= 0.3 м/с):  [ПРОПУЩЕНО: немає local_position.csv]")
+    else:
+        err_txt = "n/a" if v_err is None else f"{v_err:.2f} м/с"
+        print(f"Критерій швидкості (<= 0.3 м/с):  [{'УСПІХ' if crit_velocity else 'ПРОВАЛ'}] похибка {err_txt}")
     print("==================================================")
 
-    passed = crit_tracking and crit_inliers
+    passed = crit_tracking and crit_inliers and crit_velocity
     return passed, {
         "total_frames": total_frames,
         "valid_frames": valid_frames,
@@ -144,6 +160,8 @@ def run_regression_test(dataset_path, camera_params_path=None, *, synthetic_fall
         "mean_inliers": mean_inliers,
         "v_mean_x": v_mean_x,
         "v_mean_y": v_mean_y,
+        "gt_v": None if gt_v is None else [float(gt_v[0]), float(gt_v[1])],
+        "velocity_error": v_err,
     }
 
 

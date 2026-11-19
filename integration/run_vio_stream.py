@@ -101,7 +101,7 @@ def main():
     from vio_sensor_capture import capture
     from vio_geometry import camera_to_body_xy
     from vio_estimation_inputs import fixed_mount, vertical_inputs
-    from vio_quality_gate import QualityGate, covariance_ok, fresh, ekf_ready
+    from vio_quality_gate import QualityGate, covariance_ok, fresh, ekf_ready, needs_new_epoch
     from vio_quality_gate import measure_distributed_flow, judge_distributed_flow
     from vio_scale_compensation import predicted_scale, compensate_previous
     cv2.setNumThreads(1)
@@ -523,6 +523,11 @@ def main():
                 if audit['ok'] and consistency is not None and consistency['ok']:
                     accepted, nis = ekf.update_velocity_xy(velocity, result.sigma_scale)
                     row.update(nis=float(nis))
+                    if needs_new_epoch(ekf):
+                        # Forced velocity reset latches ekf_ready() closed; open a new epoch
+                        # through the existing continuous-IMU recovery instead of blocking forever.
+                        block('EKF forced velocity reset', t, reset=True)
+                        raise ValueError('EKF forced velocity reset')
                 state['accepted' if accepted else 'rejected'] += 1
                 row.update(inliers=result.n_inliers, sigma_v=result.sigma_v)
             covariance = ekf.P.copy()

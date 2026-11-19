@@ -20,6 +20,14 @@ def ekf_ready(ekf):
     return bool(ekf.vel_init and ekf.n_resets == 0)
 
 
+def needs_new_epoch(ekf):
+    """True after a forced velocity reset. ekf_ready() stays False for this estimator
+    object, so the caller must start a new estimator epoch (as for IMU gaps) instead of
+    leaving the gate latched closed until a restart. OpenVINS likewise re-initialises
+    after a failure rather than stopping for good (tests/ref_port, F13)."""
+    return bool(ekf.n_resets)
+
+
 def covariance_ok(matrix, size, max_variance=1.):
     import numpy as np
     p = np.asarray(matrix, dtype=float)
