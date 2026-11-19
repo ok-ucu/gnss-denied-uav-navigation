@@ -1,4 +1,5 @@
 """Offline source-handoff regressions, never live hardware/GPU verification."""
+import ast
 import json
 from pathlib import Path
 import tempfile
