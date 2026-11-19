@@ -5,9 +5,9 @@ from vio_scale_compensation import to_previous_coordinates
 
 
 def prefer_redetection(previous_inliers, min_inliers, scale):
-    """Try distributed recovery first after weak support and strong shrinkage."""
+    """Try distributed recovery first after weak support and large scale change."""
     return (previous_inliers is not None and previous_inliers < 3 * min_inliers
-            and scale is not None and scale < .85)
+            and scale is not None and (scale < .85 or scale > 1.15))
 
 
 def redetect(frontend, previous, gray, dt, height, gyro, rotation, scale, deadline):
@@ -19,7 +19,11 @@ def redetect(frontend, previous, gray, dt, height, gyro, rotation, scale, deadli
             or not np.isfinite(dt) or dt <= 0 or not np.isfinite(height) or height <= 0
             or time.monotonic() >= deadline):
         return None
-    p0 = cv2.goodFeaturesToTrack(previous, min(frontend.max_corners, 80), .005, 8)
+    # Enlargement exposes weaker but trackable corners below the first 80
+    # detector responses on the recorded LAND pair. Keep the tighter bound
+    # for CLIMB and use the pinned detector cap for large enlargement only.
+    corner_cap = frontend.max_corners if scale > 1.15 else min(frontend.max_corners, 80)
+    p0 = cv2.goodFeaturesToTrack(previous, corner_cap, .005, 8)
     if p0 is None or len(p0) < frontend.min_inliers or time.monotonic() >= deadline:
         return None
     p1, forward, _ = cv2.calcOpticalFlowPyrLK(previous, gray, p0, None, **frontend.lk)

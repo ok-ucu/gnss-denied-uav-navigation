@@ -554,7 +554,8 @@ def main():
             support_stamp, support = state.get('frontend_support', (None, None))
             can_redetect = previous is not None and scale is not None and injected is None
             early = (can_redetect and support_stamp == previous_t
-                     and prefer_redetection(support, frontend.min_inliers, scale))
+                     and prefer_redetection(0 if support is None else support,
+                                            frontend.min_inliers, scale))
             result = attempt_redetection() if early else None
             if result is not None:
                 frontend.prev, frontend.prev_t = gray, t
