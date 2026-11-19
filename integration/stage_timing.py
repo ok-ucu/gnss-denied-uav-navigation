@@ -19,13 +19,14 @@ _sample = ContextVar('acquisition_ns', default=None)
 
 
 class Recorder:
-    def __init__(self, path, capacity=100000):
+    def __init__(self, path, capacity=100000, *, sample_scheduler=False):
         self.path = Path(path)
         if self.path.exists():
             raise ValueError('Never overwrite stage evidence')
         self.rows = deque(maxlen=capacity)
         self.dropped = 0
         self.stop = threading.Event()
+        self.scheduler_threads = {} if sample_scheduler else None
         self.thread = threading.Thread(target=self._sample_cpu, daemon=True)
         self.thread.start()
 
@@ -34,14 +35,23 @@ class Recorder:
             self.dropped += 1
         self.rows.append(row)
 
+    def register_scheduler_thread(self, role):
+        if self.scheduler_threads is not None:
+            self.scheduler_threads.setdefault(role, threading.get_native_id())
+
     def _sample_cpu(self):
         while not self.stop.is_set():
+            start = time.monotonic_ns()
             try:
                 values = dict(line.split() for line in Path('/sys/fs/cgroup/cpu.stat').read_text().splitlines())
                 self.add(dict(stage='cgroup_cpu',host_ns=time.monotonic_ns(),values={k:int(v) for k,v in values.items()}))
-            except OSError:
+            except (OSError, ValueError):
                 pass
-            self.stop.wait(.5)
+            if self.scheduler_threads is not None:
+                for role, tid in self.scheduler_threads.copy().items():
+                    self.add(scheduler_sample(role, tid))
+                self.add(dict(stage='scheduler_sampler',start_host_ns=start,end_host_ns=time.monotonic_ns()))
+            self.stop.wait(.5 if self.scheduler_threads is None else .020)
 
     def close(self):
         self.stop.set();self.thread.join(timeout=2)
@@ -51,11 +61,11 @@ class Recorder:
             output.write(json.dumps(dict(stage='profile_summary',dropped=self.dropped))+'\n')
 
 
-def activate(path):
+def activate(path, *, sample_scheduler=False):
     global _recorder
     if _recorder is not None:
         raise RuntimeError('Profile already active')
-    _recorder = Recorder(path)
+    _recorder = Recorder(path, sample_scheduler=sample_scheduler)
     return _recorder
 
 
@@ -93,6 +103,30 @@ def thread_schedule():
         return tuple(map(int,Path('/proc/self/task/'+str(threading.get_native_id())+'/schedstat').read_text().split()))
     except (OSError,ValueError):
         return None
+
+
+def scheduler_sample(role, tid):
+    """Read bounded scheduler evidence from the sampler thread, with explicit gaps."""
+    task = Path('/proc/self/task') / str(tid)
+    start = time.monotonic_ns()
+    try:
+        counters = list(map(int, (task/'schedstat').read_text().split()))
+        if len(counters) != 3:
+            counters = None
+    except (OSError, ValueError):
+        counters = None
+    try:
+        # The comm field is parenthesized and may contain spaces or parentheses.
+        state = (task/'stat').read_text().rsplit(')', 1)[1].split()[0]
+    except (OSError, IndexError):
+        state = None
+    try:
+        wchan = (task/'wchan').read_text().strip()
+    except OSError:
+        wchan = None
+    return dict(stage='scheduler_thread_sample', role=role, thread_id=tid,
+                start_host_ns=start, end_host_ns=time.monotonic_ns(),
+                schedstat=counters, task_state=state, wchan=wchan)
 
 
 @contextmanager

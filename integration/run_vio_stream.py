@@ -117,7 +117,7 @@ def main():
         p.error('Invalid finite configuration')
     if min(a.min_odom_subscribers,a.min_epoch_subscribers)<0:p.error('Negative discovery requirement')
     a.output_dir.mkdir(parents=True, exist_ok=False)
-    timing=activate(a.output_dir/'stages.jsonl') if a.profile else None
+    timing=activate(a.output_dir/'stages.jsonl', sample_scheduler=True) if a.profile else None
     fault_control=FaultFile(a.fault_file)
     def stop(signum, frame):
         raise KeyboardInterrupt('controlled stream shutdown')
@@ -204,7 +204,8 @@ def main():
                                for path in [Path(__file__), Path(__file__).with_name('vio_quality_gate.py'),
                                             Path(__file__).with_name('vio_sensor_capture.py'),
                                             Path(__file__).with_name('vio_frontend_recovery.py'),
-                                            Path(__file__).with_name('vio_admission.py')]
+                                            Path(__file__).with_name('vio_admission.py'),
+                                            Path(__file__).with_name('stage_timing.py')]
                                + [a.vio_dir/name for name in ('vio_core.py', 'vio_frontend.py', 'vio_ros_source.py', 'vio_ros_out.py')]}
     if a.isolated_imu:
         config['source_sha256']['isolated_imu.py']=hashlib.sha256(Path(__file__).with_name('isolated_imu.py').read_bytes()).hexdigest()
@@ -525,6 +526,8 @@ def main():
             audit_future = None
             if previous is not None:
                 def timed_measure(previous, gray, dt, scale, compensated):
+                    if timing is not None:
+                        timing.register_scheduler_thread('audit')
                     begin=time.monotonic()
                     with critical_stage('source_spatial_audit'):
                         measured=measure_distributed_flow(previous, gray, dt, scale, compensated=compensated)
@@ -679,6 +682,8 @@ def main():
         write(row)
 
     def handle(frame,buffers):
+        if timing is not None:
+            timing.register_scheduler_thread('frame')
         publication_health[0]=buffers['clocks'].check_health
         with sample(round(frame[1]*1e9)),critical_stage('source_frame'):
             return process_frame(frame,buffers)

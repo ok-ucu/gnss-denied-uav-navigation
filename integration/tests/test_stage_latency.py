@@ -257,6 +257,59 @@ class CriticalStageTests(unittest.TestCase):
         self.assertNotIn('unknown',result['process_cpu_ms'])
         self.assertEqual(result['wall_ms']['unknown']['n'],1)
 
+    def test_land_stall_still_rejects_stale_frame_and_requires_reacquisition(self):
+        import numpy as np
+        from run_vio_stream import clock_status, publication_block
+        from vio_quality_gate import QualityGate
+        from vio_latency_contract import SOURCE_PUBLICATION_MAX_AGE_S
+
+        gate = QualityGate()
+
+        def assess(stamp):
+            return gate.assess(stamp, stamp, imu_age=0., frame_age=.01, clock_age=.004,
+                               max_imu_gap=.001, inliers=194, contrast=32.,
+                               covariance=np.eye(9)*.001, state_finite=True,
+                               audit_ok=True, ekf_ok=True)
+
+        for stamp in (51.2, 51.3, 51.4, 51.5):
+            ready = assess(stamp)
+        self.assertTrue(ready)
+        for stall in (51.6, 52.1):
+            self.assertTrue(assess(stall))
+            check = clock_status(stall, {'t': stall+.179, 'arrival_monotonic_s': 10.},
+                                 now=10., limit=SOURCE_PUBLICATION_MAX_AGE_S)
+            self.assertEqual(publication_block(gate, check, 2, 1, 2, 1), 'stale at publication')
+            for offset in (.1, .2, .3):
+                self.assertFalse(assess(stall+offset))
+            self.assertTrue(assess(stall+.4))
+        # Original transport used host time. The resumed source and callback
+        # both occurred after the watchdog in the recorded LAND.
+        self.assertGreater(39333964916124-39333464452205, 500_000_000)
+        self.assertGreater(39333966878193, 39333964916124)
+
+    def test_vio_scheduler_sampling_runs_off_frame_thread(self):
+        import threading
+
+        done = threading.Event()
+        reads = []
+
+        def observe(role, tid):
+            reads.append((role, tid, threading.get_native_id()))
+            done.set()
+            return {'stage': 'scheduler_thread_sample'}
+
+        with tempfile.TemporaryDirectory() as directory, patch.object(stage_timing, 'scheduler_sample', observe):
+            recorder = stage_timing.Recorder(Path(directory)/'stages.jsonl', sample_scheduler=True)
+            try:
+                recorder.register_scheduler_thread('frame')
+                self.assertTrue(done.wait(2))
+            finally:
+                recorder.close()
+        role, sampled_tid, reader_tid = reads[0]
+        self.assertEqual(role, 'frame')
+        self.assertEqual(sampled_tid, threading.get_native_id())
+        self.assertNotEqual(reader_tid, sampled_tid)
+
     def test_disabled_probe_does_not_read_scheduler(self):
         with patch.object(stage_timing,'_recorder',None),patch.object(stage_timing,'thread_schedule',side_effect=AssertionError('disabled probe')):
             with stage_timing.critical_stage('disabled') as fields:
