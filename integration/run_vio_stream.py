@@ -84,6 +84,41 @@ def await_frame_clock(clocks, stamp, clock, processing_s, started):
     return clock
 
 
+POSE_MAX_AGE_S = .05   # unchanged height-input tolerance (simulation seconds)
+
+
+def causal_pose(poses, t):
+    causal = next((v for v in reversed(poses) if v['t'] <= t), None)
+    return causal if causal is not None and t-causal['t'] <= POSE_MAX_AGE_S else None
+
+
+def await_causal_pose(buffer, t, poses, processing_s, started, cap=.03):
+    """Give the independent native pose callback one short opportunity to deliver.
+
+    Run 20261119-manual07 (frame 49.5 s): clock and IMU were fresh but the pose
+    snapshot taken at frame start had nothing within 50 ms sim, which at the
+    measured 0.58 real-time factor is only ~86 ms host for the gz-transport
+    callback. One rejected frame then cost 0.5 s sim of output and tripped the
+    500 ms transport watchdog. The 50 ms tolerance is unchanged; the wait is
+    bounded by the publication-age slack and `cap` host seconds, and the
+    publication age gate still applies afterwards. Returns (poses, causal, waited_s).
+    """
+    causal = causal_pose(poses, t)
+    if causal is not None:
+        return poses, causal, 0.
+    begin = time.monotonic()
+    deadline = min(started + PUBLICATION_MAX_AGE_S - (processing_s or 0.), begin + cap)
+    while time.monotonic() < deadline:
+        time.sleep(.0005)   # releases the GIL for the pose callback
+        newest = buffer.latest()
+        if newest is not None and newest['t'] >= t-POSE_MAX_AGE_S:
+            poses = buffer.snapshot()
+            causal = causal_pose(poses, t)
+            if causal is not None:
+                break
+    return poses, causal, time.monotonic()-begin
+
+
 def publication_block(gate, clock_check, odom_matches, epoch_matches, min_odom, min_epoch):
     """Separate estimator quality from downstream delivery eligibility."""
     if not clock_check['valid']:
@@ -445,8 +480,11 @@ def main():
             row['clock_check']['publishers']=getattr(buffers['clocks'],'publishers',[])
             if not row['clock_check']['valid']:
                 raise ValueError('stale/uncomparable clock')
-            causal = next((v for v in reversed(poses) if v['t'] <= t), None)
-            if causal is None or t-causal['t'] > .05:
+            poses, causal, pose_wait = await_causal_pose(buffers['poses'], t, poses, admission.expected(), wall)
+            if pose_wait:
+                row['pose_wait'] = dict(wall_s=pose_wait, found=causal is not None,
+                                        newest_pose_sim_s=poses[-1]['t'] if poses else None)
+            if causal is None:
                 raise ValueError('height timestamp unavailable')
             entries = {v['name']: v for v in causal['poses']}
             root, body, gimbal, pitch = [entries[k] for k in ('iris_with_gimbal', 'iris_with_standoffs', 'gimbal', 'pitch_link')]
