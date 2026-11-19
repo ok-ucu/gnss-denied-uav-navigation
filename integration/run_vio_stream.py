@@ -630,17 +630,24 @@ def main():
                        source_age=source_age, clock_age=clock['t']-t,
                        gt_ned=(n@np.asarray(root['p'])).tolist(),
                        gt_height_only_input=True, ready=ready)
+            current_clock = buffers['clocks'].latest()
             row.update(estimator_output_monotonic_s=time.monotonic(),
-                       estimator_output_clock_s=buffers['clocks'].latest()['t'],
+                       estimator_output_clock_s=current_clock['t'],
                        frame_gap_s=frame_gap,frontend_available=result is not None,
                        session=session,epoch=state['recoveries'])
-            mark('vio_estimator_output',source_ns=round(t*1e9),source_clock_s=buffers['clocks'].latest()['t'])
+            mark('vio_estimator_output',source_ns=round(t*1e9),source_clock_s=current_clock['t'])
             if epoch_start[0] is None:epoch_start[0]=round(t*1e9)
             # GT XY above is LOGGING ONLY; never used in filter or gate.
+            if gate.count and not ready:
+                # A completed but expired frame cannot count towards the
+                # continuous readiness interval during reacquisition either.
+                row['publication_clock_check'] = clock_status(t, current_clock, limit=PUBLICATION_MAX_AGE_S)
+                if not row['publication_clock_check']['valid']:
+                    gate.block('stale at publication', t, row['publication_clock_check']['validation_host_s'])
             if ready:
+                # Preserve the final clock read just before DDS gating.
                 current_clock = buffers['clocks'].latest()
-                current_wall = time.monotonic()
-                row['publication_clock_check']=clock_status(t,current_clock,current_wall,limit=PUBLICATION_MAX_AGE_S)
+                row['publication_clock_check'] = clock_status(t, current_clock, limit=PUBLICATION_MAX_AGE_S)
                 odom_matches=output_node.odom_publisher.get_subscription_count()
                 epoch_matches=epoch_pub.get_subscription_count()
                 row.update(odom_subscribers=odom_matches,epoch_subscribers=epoch_matches)
