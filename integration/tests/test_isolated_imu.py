@@ -95,6 +95,62 @@ class IsolatedImuTests(unittest.TestCase):
                 self.assertEqual(len(buffers['imu'].snapshot()),1)
                 with self.assertRaises(ValueError):receiver.accept(self.packet(receiver,1,1.02),received=3.)
 
+    def test_identical_imu_retransmissions_preserve_original_receipt_and_advance_ipc(self):
+        receiver, buffers = self.receiver()
+        first = self.packet(receiver)
+        first['imu'].append(dict(first['imu'][0], arrival_monotonic_s=1.51))
+        receiver.accept(first, received=3.)
+        retry = self.packet(receiver, sequence=1)
+        retry['imu'][0]['arrival_monotonic_s'] = 1.52
+        receiver.accept(retry, received=3.1)
+        self.assertEqual(receiver.sequence, 2)
+        self.assertEqual(receiver.row_counts['imu'], 1)
+        self.assertEqual(buffers['imu'].latest()['arrival_monotonic_s'], 1.5)
+
+    def test_conflicting_values_backwards_and_nonfinite_imu_latch(self):
+        for change in ('conflicting', 'backwards', 'nan', 'inf'):
+            with self.subTest(change=change):
+                receiver, buffers = self.receiver()
+                receiver.accept(self.packet(receiver), received=3.)
+                retry = self.packet(receiver, sequence=1, t=.99 if change=='backwards' else 1.)
+                if change == 'conflicting':
+                    retry['imu'][0]['gyro'] = [1, 0, 0]
+                elif change in ('nan', 'inf'):
+                    retry['imu'][0]['q'][0] = float(change)
+                with self.assertRaises(ValueError):
+                    receiver.accept(retry, received=3.)
+                self.assertTrue(receiver.fault.is_set())
+                self.assertEqual(len(buffers['imu'].snapshot()), 1)
+
+    def test_direct_buffer_dedup_and_estimator_gap_checks(self):
+        from vio_imu_preintegration import advance, new_pending
+
+        first = dict(t=1., f=[0, 0, -9.8], gyro=[0, 0, 0], q=[0, 0, 0, 1])
+        for failure in (None, 'conflict', 'backwards', 'gap', 'nan', 'inf'):
+            with self.subTest(failure=failure):
+                buffer = BoundedRecords(10, 'imu')
+                buffer.append(dict(first, arrival_monotonic_s=2.))
+                buffer.append(dict(first, arrival_monotonic_s=3.))
+                self.assertEqual(buffer.latest()['arrival_monotonic_s'], 2.)
+                next_row = dict(first, t=1.001)
+                if failure == 'conflict':
+                    next_row.update(t=1., f=[1, 0, -9.8])
+                elif failure == 'backwards':
+                    next_row['t'] = .999
+                elif failure == 'gap':
+                    next_row['t'] = 1.021
+                elif failure in ('nan', 'inf'):
+                    next_row['f'] = [float(failure), 0, 0]
+                buffer.append(next_row)
+                rows = buffer.snapshot()
+                self.assertEqual(len(rows), 2)
+                state = dict(new_pending(), imu_index=1, filter_t=1., last_imu=rows[0])
+                steps = []
+                count, bad = advance(state, rows, 0, 1.1, lambda *args: steps.append(args), lambda _: None)
+                self.assertEqual(count, int(failure is None))
+                self.assertEqual(len(steps), count)
+                self.assertIs(bad, next_row if failure is not None else None)
+
     def test_clock_duplicates_are_preserved_without_invented_stamps(self):
         receiver,buffers=self.receiver()
         receiver.accept(self.packet(receiver),received=3.)

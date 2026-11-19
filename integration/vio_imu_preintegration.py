@@ -34,6 +34,18 @@ TICK_CHUNK = 10
 PROPAGATION_STEP_S = .005
 
 
+def imu_values_finite(row):
+    return all(len(row[key]) == size and all(map(math.isfinite, row[key]))
+               for key, size in (('f', 3), ('gyro', 3), ('q', 4)))
+
+
+def identical_imu_sample(previous, row):
+    """Compare acquisition identity and sensor data, excluding delivery metadata."""
+    return (previous['t'] == row['t'] and previous.get('stamp_ns') == row.get('stamp_ns')
+            and previous.get('frame') == row.get('frame') and imu_values_finite(row)
+            and all(previous[key] == row[key] for key in ('f', 'gyro', 'q')))
+
+
 def new_pending():
     """Per-frame accumulators: gyro samples (dt, gyro) and max IMU gap."""
     return dict(pending_gyro=[], pending_max_gap=.001, pending_count=0)
@@ -73,6 +85,8 @@ def advance(state, samples, base, until, predict, rotation, limit=None, step_s=0
     """
     import numpy as np
     count = 0
+    if not imu_values_finite(state['last_imu']):
+        return count, state['last_imu']
     while True:
         i = state['imu_index']-base
         if i < 0:
@@ -83,7 +97,7 @@ def advance(state, samples, base, until, predict, rotation, limit=None, step_s=0
             if m['t'] > until:
                 break
             gap = m['t']-previous['t']
-            if not 0 < gap <= .02 or not all(map(math.isfinite, m['f']+m['gyro'])):
+            if not 0 < gap <= .02 or not imu_values_finite(m):
                 bad = m
                 break
             block.append((m, gap))

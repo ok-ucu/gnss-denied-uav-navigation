@@ -5,6 +5,7 @@ receipt time. Queue overflow, worker exit and protocol errors latch unhealthy.
 This module imports ROS only inside the real worker; offline tests need no ROS.
 """
 import math
+from vio_imu_preintegration import identical_imu_sample, imu_values_finite
 import multiprocessing
 import queue
 import threading
@@ -109,6 +110,7 @@ class IsolatedImuReceiver:
         self.session = str(uuid.uuid4())
         self.sequence = 0
         self.last = {}
+        self.last_imu = None
         self.reason = None
         self.closed = False
         self.profile = profile
@@ -147,24 +149,36 @@ class IsolatedImuReceiver:
             if not 0 < len(packet['imu'])+len(packet['clocks']) <= MAX_BATCH_ROWS:
                 raise ValueError('isolated IMU malformed/oversize batch')
             latest = dict(self.last)
+            last_imu = self.last_imu
+            accepted = {'imu': [], 'clocks': []}
             for kind in ('imu', 'clocks'):
                 for row in packet[kind]:
                     t, arrived = row['t'], row['arrival_monotonic_s']
                     if not all(math.isfinite(v) for v in (t, arrived)) or min(t, arrived)<0 or arrived > sent:
                         raise ValueError('isolated IMU malformed timestamp')
-                    if kind in latest:
-                        previous_t, previous_arrival = latest[kind]
-                        # /clock duplicates are retained for audit, not promoted
-                        # into new acquisition labels. Reset/out-of-order is fatal.
-                        if t < previous_t or (kind == 'imu' and t == previous_t) or arrived < previous_arrival:
-                            raise ValueError('isolated IMU/clock reset or unordered samples')
+                    if kind == 'imu' and not imu_values_finite(row):
+                        raise ValueError('isolated IMU malformed sensor values')
+                    previous_t, previous_arrival = latest.get(kind, (-1, -1))
+                    if t < previous_t or arrived < previous_arrival:
+                        raise ValueError('isolated IMU/clock reset or unordered samples')
+                    if kind == 'imu' and t == previous_t:
+                        if not identical_imu_sample(last_imu, row):
+                            raise ValueError('isolated IMU conflicting duplicate timestamp')
+                        # Advance the receipt-order watermark without refreshing
+                        # the retained measurement or its original arrival time.
+                        latest[kind] = (t, arrived)
+                        continue
                     latest[kind] = (t, arrived)
-            for kind in ('imu', 'clocks'):
-                for row in packet[kind]:
+                    accepted[kind].append(row)
+                    if kind == 'imu':
+                        last_imu = row
+            for kind, rows in accepted.items():
+                for row in rows:
                     self.buffers[kind].append(dict(row, ipc_received_monotonic_s=received,
                                                   ipc_sequence=self.sequence))
                     self.row_counts[kind] += 1
             self.last = latest
+            self.last_imu = last_imu
             if self.profile:
                 if len(self.metrics) == self.metrics.maxlen:
                     self.metric_overflows += 1

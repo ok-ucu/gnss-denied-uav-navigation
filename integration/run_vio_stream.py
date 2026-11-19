@@ -205,6 +205,7 @@ def main():
                                             Path(__file__).with_name('vio_sensor_capture.py'),
                                             Path(__file__).with_name('vio_frontend_recovery.py'),
                                             Path(__file__).with_name('vio_admission.py'),
+                                            Path(__file__).with_name('vio_imu_preintegration.py'),
                                             Path(__file__).with_name('stage_timing.py')]
                                + [a.vio_dir/name for name in ('vio_core.py', 'vio_frontend.py', 'vio_ros_source.py', 'vio_ros_out.py')]}
     if a.isolated_imu:

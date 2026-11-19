@@ -5,6 +5,7 @@ import signal
 import subprocess
 import threading
 import time
+from vio_imu_preintegration import identical_imu_sample
 from stage_timing import sample,stage,mark,critical_stage,trace_span,FrameQueueLock
 
 
@@ -20,6 +21,8 @@ class BoundedRecords:
 
     def append(self, item):
         with self.lock:
+            if self.label == 'imu' and self.items and identical_imu_sample(self.items[-1], item):
+                return
             if len(self.items) == self.items.maxlen:
                 self.dropped += 1
             self.items.append(item)
@@ -226,6 +229,7 @@ def capture(camera, imu_topic, duration, output_dir, frame_handler=None, tick_ha
         start=time.monotonic()
         cpu_start=time.thread_time_ns() if profile else None
         row={'t':msg.header.stamp.sec+msg.header.stamp.nanosec*1e-9,
+             'stamp_ns':msg.header.stamp.sec*10**9+msg.header.stamp.nanosec,
              'arrival_monotonic_s':start,'frame':msg.header.frame_id,
              'f':vec(msg.linear_acceleration),'gyro':vec(msg.angular_velocity),'q':q(msg.orientation)}
         row['callback_build_s']=time.monotonic()-start
