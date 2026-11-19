@@ -1,0 +1,5 @@
+{"path": "/tmp/render_gl_identity.txt", "is_file": true, "bytes": 139}
+host_monotonic_ns=5225714794988
+vendor=NVIDIA Corporation
+renderer=Quadro T2000 with Max-Q Design/PCIe/SSE2
+version=4.5.0 NVIDIA 595.99.02

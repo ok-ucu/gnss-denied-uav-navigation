@@ -1,0 +1,36 @@
+
+=== CONTAINER DIAGNOSTICS ===
+Setting SIM_SPEEDUP=1.000000
+Starting SITL: JSON
+Home: -35.363261 149.165230 alt=584.000000m hdg=0.000000
+JSON control interface set to 127.0.0.1:9002
+Starting sketch 'ArduCopter'
+Starting SITL input
+Using Irlock at port : 9005
+Loaded defaults from /home/docker/ardupilot/Tools/autotest/default_params/copter.parm,/home/docker/ardupilot/Tools/autotest/default_params/gazebo-iris.parm,/run/integration/artifacts/externalnav.parm
+No JSON sensor message received, resending servos
+No JSON sensor message received, resending servos
+
+JSON received:
+	timestamp
+	imu: gyro
+	imu: accel_body
+	position
+	quaternion
+	velocity
+	no_time_sync
+
+No JSON sensor message received, resending servos
+Loaded defaults from /home/docker/ardupilot/Tools/autotest/default_params/copter.parm,/home/docker/ardupilot/Tools/autotest/default_params/gazebo-iris.parm,/run/integration/artifacts/externalnav.parm
+No JSON sensor message received, resending servos
+No JSON sensor message received, resending servos
+No JSON sensor message received, resending servos
+New connection on serial port 0
+Closed connection on serial port 0
+bind port 5760 for 0
+Serial port 0 on TCP port 5760
+bind port 5762 for 2
+Serial port 2 on TCP port 5762
+bind port 5763 for 3
+Serial port 3 on TCP port 5763
+validate_structures:498: Validating structures

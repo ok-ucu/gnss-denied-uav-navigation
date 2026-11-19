@@ -1,0 +1,34 @@
+{
+  "execution_allowed": false,
+  "forwarding_enabled": false,
+  "mount_status": "PASS",
+  "settled_snapshots": 328,
+  "max_angles_deg": [
+    0.06124900171653172,
+    0.05889304992966977,
+    0.01700294621296029
+  ],
+  "final_angles_deg": [
+    0.034050395547410274,
+    0.032734890887066055,
+    0.009471941151767478
+  ],
+  "final_lever_body_flu_m": [
+    0.01781179246512793,
+    -0.009979389017693003,
+    -0.10292042777972558
+  ],
+  "image_count": 178,
+  "nonzero_image_count": 178,
+  "pose_count": 462,
+  "clock_count": 20457,
+  "setpoints_rad": {
+    "yaw": 0.000796326795,
+    "roll": -0.000796326795,
+    "pitch": 1.570796326795
+  },
+  "unexpected_commands": [],
+  "optical_flow_accuracy": "NOT TESTED",
+  "dynamic_mount_hold": "NOT TESTED",
+  "acquisition_to_fcu_uncertainty_bound": "NOT ESTABLISHED"
+}

@@ -1,0 +1,10 @@
+{
+  "run_id": "20261119-manual07",
+  "clock_epoch": "242f5559-eaed-4931-a57f-56ef54322b73",
+  "reference_nonce": "b40a5b10-25f9-408b-a70e-c8358df4d571",
+  "execution_allowed": false,
+  "forwarding_enabled": false,
+  "firmware_sha256": "d8c8aa1126156c7c124fddb0dc0908704e0b9779a5b9fc5e40d24fa39b5f0d36",
+  "architecture": "amd64",
+  "runtime_admitted": false
+}

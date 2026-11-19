@@ -1,0 +1,33 @@
+{
+  "images": {
+    "physics": "sha256:1653eb3241db282628fab9a528328aede57d556c0f16bdaa3e0d7ef3c49faed9",
+    "fcu": "sha256:8195bb92e1c8b997f046799ed862d154adb56e5733b2a2cdf859fe968dd987d0",
+    "transport": "sha256:eeba41819880d63018915092d383c5fc6d0a327ec7d230ebe349669975685aaf"
+  },
+  "names": {
+    "physics": "gnss-p1-physics-20261119-manual07",
+    "fcu": "gnss-p1-fcu-20261119-manual07",
+    "vio": "gnss-p1-vio-20261119-manual07",
+    "transport": "gnss-p1-transport-20261119-manual07"
+  },
+  "network": "gnss-p1-integrated-20261119-manual07",
+  "partition": "gnss-p1-integrated-20261119-manual07",
+  "architecture": "amd64",
+  "runtime_admitted": false,
+  "gpu_mode": "nvidia",
+  "decision": "HOLD",
+  "candidate_manifest": "integration/linux_gpu_runs/verified-linux-candidate/candidate.json",
+  "host_ports": [],
+  "execution_allowed": false,
+  "forwarding_enabled": false,
+  "isolated_imu": true,
+  "vio_commit": "d33f66008fd7b6de332c96dd324b8ddbd320c194",
+  "vio_source_sha256": {
+    "vio_core.py": "1bddfbbcf12fad27bf5c769a1718f11d9592f2bee54bdb238781b11f5dc40efa",
+    "vio_frontend.py": "db69d2c5a11ce2ad20cc3f94d78f35aa2b07b6755931372b7e5f3fc0a3d11682",
+    "vio_ros_out.py": "2356fdb2e75652e08fcefdeaf97cc6cb9b79ade710117cc9aeaaea94cb35d3b3",
+    "vio_ros_source.py": "a7957f2c8973227cd0754a549d1c9ad403e1c3f7a49e24aa1a092d2d4d984bbe"
+  },
+  "simulation_disarmed_vision_requested": true,
+  "mode": "DISARMED; capture-only; no FCU vision route"
+}

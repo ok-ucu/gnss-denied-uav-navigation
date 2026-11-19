@@ -1,0 +1,16 @@
+[
+  {
+    "name": "/vazon-backend-1",
+    "id": "6d05e653ad685d24fb8e928156e3184dc55d7af0a1a1955ae59d060c7cdcab75",
+    "start": "2026-11-19T16:10:32.303931393Z",
+    "image": "sha256:08161657815010e625504bb6ab793ae6e6dfea028a0d25831ba1ddf5710bcd14",
+    "network": "vazon_default"
+  },
+  {
+    "name": "/vazon-postgres-1",
+    "id": "d569f34fd07a379860e7c91751acdf99112310bfc6f2bf29918b2bd98a1c3976",
+    "start": "2026-11-19T16:10:32.302157635Z",
+    "image": "sha256:526f86d93c6ea08fd3f1fe5605650cacc781b2c6013169a0ad8f42c7d3d84f32",
+    "network": "vazon_default"
+  }
+]

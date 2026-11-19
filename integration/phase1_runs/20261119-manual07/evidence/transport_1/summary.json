@@ -1,0 +1,20 @@
+{
+  "odom_received": 254,
+  "mapped_pairs": 253,
+  "vision_received": 506,
+  "validated_capture_packets": 506,
+  "vision_sent_to_fcu": 506,
+  "control_sent_to_fcu": 0,
+  "heartbeat": 30,
+  "armed_samples": 0,
+  "clock_proof_checks": 237,
+  "system_time_requests": 237,
+  "simulation_origin_initializations": 1,
+  "clock_mapping_verified": true,
+  "clock_latched": false,
+  "gate_reason": "owner shutdown",
+  "decision": "HOLD",
+  "execution_allowed": false,
+  "forwarding_enabled": false,
+  "scope": "DISARMED simulation-only vision ingress; fusion requires independent DataFlash evidence"
+}

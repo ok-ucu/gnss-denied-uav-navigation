@@ -1,0 +1,15 @@
+[WARN] [1795109881.849601602] [rcl]: ROS_LOCALHOST_ONLY is deprecated but still honored if it is enabled. Use ROS_AUTOMATIC_DISCOVERY_RANGE and ROS_STATIC_PEERS instead.
+[WARN] [1795109881.849614718] [rcl]: 'localhost_only' is enabled, 'automatic_discovery_range' and 'static_peers' will be ignored.
+Traceback (most recent call last):
+  File "/opt/integration/phase1_transport.py", line 631, in <module>
+    if __name__=='__main__':main()
+                            ^^^^^^
+  File "/opt/integration/phase1_transport.py", line 539, in main
+    if flight is None or not simulation.failure:drain()
+                                                ^^^^^^^
+  File "/opt/integration/phase1_transport.py", line 328, in drain
+    if simulation is not None and (not simulation.ready(now) or not origin_confirmed):
+                                       ^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/integration/simulation_vision.py", line 216, in ready
+    raise ValueError(self.failure)
+ValueError: VIO availability watchdog

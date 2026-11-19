@@ -1,0 +1,22 @@
+{
+  "upstream": {
+    "blocked": true,
+    "fcu": "SIMULATION_DISARMED:b40a5b10-25f9-408b-a70e-c8358df4d571",
+    "producer": "ce960cc2-d624-478f-8b93-b2522eb47d0e",
+    "epoch": 0,
+    "last_ns": 49400000000,
+    "used_fcu": [
+      "SIMULATION_DISARMED:b40a5b10-25f9-408b-a70e-c8358df4d571"
+    ]
+  },
+  "egress": {
+    "blocked": true,
+    "fcu": "SIMULATION_DISARMED:b40a5b10-25f9-408b-a70e-c8358df4d571",
+    "producer": "ce960cc2-d624-478f-8b93-b2522eb47d0e",
+    "epoch": 0,
+    "last_ns": 0,
+    "used_fcu": [
+      "SIMULATION_DISARMED:b40a5b10-25f9-408b-a70e-c8358df4d571"
+    ]
+  }
+}

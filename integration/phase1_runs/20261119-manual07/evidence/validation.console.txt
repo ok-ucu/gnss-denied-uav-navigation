@@ -1,0 +1,5 @@
+Traceback (most recent call last):
+  File "/home/solomiia/visual/phase1-linux-validated.vjmidm/source/integration/run_phase1_validation.py", line 92, in <module>
+    if not simulation_stopped and gate.poll() is not None:raise RuntimeError('DISARMED simulation transport stopped; abort source')
+                                                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: DISARMED simulation transport stopped; abort source

@@ -1,0 +1,198 @@
+name: gnss-phase1-integrated-20261119-manual07
+services:
+  fcu:
+    cpus: 0.2
+    command:
+      - -lc
+      - cd /run/integration/state/fcu; exec /run/integration/artifacts/arducopter --model JSON --speedup 1 --home=-35.363261,149.165230,584,0 --defaults /home/docker/ardupilot/Tools/autotest/default_params/copter.parm,/home/docker/ardupilot/Tools/autotest/default_params/gazebo-iris.parm,/run/integration/artifacts/externalnav.parm --serial0 tcp:5760 --sim-port-out 9002
+    container_name: gnss-p1-fcu-20261119-manual07
+    depends_on:
+      physics:
+        condition: service_started
+        required: true
+    entrypoint:
+      - bash
+    environment:
+      GNSS_EXPERIMENT_TRACE: /run/integration/evidence/applied.csv
+    image: sha256:8195bb92e1c8b997f046799ed862d154adb56e5733b2a2cdf859fe968dd987d0
+    mem_limit: "536870912"
+    network_mode: service:physics
+    user: root
+    volumes:
+      - type: bind
+        source: /home/solomiia/visual/phase1-linux-validated.vjmidm/source/integration
+        target: /opt/integration
+        read_only: true
+        bind:
+          create_host_path: true
+      - type: bind
+        source: /home/solomiia/visual/phase1-linux-validated.vjmidm/source/integration/phase1_runs/20261119-manual07
+        target: /run/integration
+        bind:
+          create_host_path: true
+      - type: bind
+        source: /home/solomiia/visual/phase1-linux-validated.vjmidm/source/vio
+        target: /opt/vio
+        read_only: true
+        bind:
+          create_host_path: true
+  physics:
+    cpus: 3
+    command:
+      - -lc
+      - source /opt/ros/jazzy/setup.bash; export LD_PRELOAD=/opt/phase1/native_parts_render.so; export CAMERA_TRACE_PREFIX=/tmp/phase1_camera_boundary; PYTHONPATH=/opt/integration python3 -B -c "from launch_phase1 import verify_runtime_world; verify_runtime_world('/run/integration/models/world.sdf')" && exec gz sim -s -r --headless-rendering -v 3 /run/integration/models/world.sdf
+    container_name: gnss-p1-physics-20261119-manual07
+    entrypoint:
+      - bash
+    environment:
+      __EGL_VENDOR_LIBRARY_FILENAMES: /usr/share/glvnd/egl_vendor.d/10_nvidia.json
+      __GLX_VENDOR_LIBRARY_NAME: nvidia
+      FASTRTPS_DEFAULT_PROFILES_FILE: /opt/integration/live_vio_observer_udp.xml
+      GZ_PARTITION: gnss-p1-integrated-20261119-manual07
+      GZ_SIM_RESOURCE_PATH: /run/integration/models:/opt/ardupilot_gazebo/models:/opt/ardupilot_gazebo/worlds
+      GZ_SIM_SYSTEM_PLUGIN_PATH: /opt/ardupilot_gazebo/build
+      LIBGL_ALWAYS_SOFTWARE: "0"
+      NVIDIA_DRIVER_CAPABILITIES: graphics,utility,compute
+      PYTHONPATH: /opt/integration
+      QT_QPA_PLATFORM: offscreen
+      ROS_DOMAIN_ID: "108"
+    gpus:
+      - count: -1
+    image: sha256:1653eb3241db282628fab9a528328aede57d556c0f16bdaa3e0d7ef3c49faed9
+    mem_limit: "2147483648"
+    networks:
+      isolated: null
+    volumes:
+      - type: bind
+        source: /home/solomiia/visual/phase1-linux-validated.vjmidm/source/integration
+        target: /opt/integration
+        read_only: true
+        bind:
+          create_host_path: true
+      - type: bind
+        source: /home/solomiia/visual/phase1-linux-validated.vjmidm/source/integration/phase1_runs/20261119-manual07
+        target: /run/integration
+        bind:
+          create_host_path: true
+      - type: bind
+        source: /home/solomiia/visual/phase1-linux-validated.vjmidm/source/vio
+        target: /opt/vio
+        read_only: true
+        bind:
+          create_host_path: true
+      - type: bind
+        source: /usr/share/glvnd/egl_vendor.d/10_nvidia.json
+        target: /usr/share/glvnd/egl_vendor.d/10_nvidia.json
+        read_only: true
+        bind: {}
+  transport:
+    cpu_period: 10000
+    cpu_quota: 20000
+    command:
+      - infinity
+    container_name: gnss-p1-transport-20261119-manual07
+    depends_on:
+      fcu:
+        condition: service_started
+        required: true
+      physics:
+        condition: service_started
+        required: true
+    entrypoint:
+      - sleep
+    environment:
+      FASTRTPS_DEFAULT_PROFILES_FILE: /opt/integration/live_vio_observer_udp.xml
+      GZ_PARTITION: gnss-p1-integrated-20261119-manual07
+      GZ_SIM_RESOURCE_PATH: /run/integration/models:/opt/ardupilot_gazebo/models:/opt/ardupilot_gazebo/worlds
+      GZ_SIM_SYSTEM_PLUGIN_PATH: /opt/ardupilot_gazebo/build
+      LIBGL_ALWAYS_SOFTWARE: "1"
+      PHASE1_GUARD_STATE_DIR: /var/lib/phase1-guard
+      PYTHONPATH: /opt/integration
+      QT_QPA_PLATFORM: offscreen
+      ROS_DOMAIN_ID: "108"
+    image: sha256:eeba41819880d63018915092d383c5fc6d0a327ec7d230ebe349669975685aaf
+    mem_limit: "805306368"
+    network_mode: service:physics
+    volumes:
+      - type: bind
+        source: /home/solomiia/visual/phase1-linux-validated.vjmidm/source/integration
+        target: /opt/integration
+        read_only: true
+        bind:
+          create_host_path: true
+      - type: bind
+        source: /home/solomiia/visual/phase1-linux-validated.vjmidm/source/integration/phase1_runs/20261119-manual07
+        target: /run/integration
+        bind:
+          create_host_path: true
+      - type: bind
+        source: /home/solomiia/visual/phase1-linux-validated.vjmidm/source/integration/linux_gpu_runs/verified-linux-candidate/patch_install
+        target: /tmp/patch_install
+        read_only: true
+        bind:
+          create_host_path: true
+      - type: volume
+        source: guard_state
+        target: /var/lib/phase1-guard
+        volume: {}
+      - type: volume
+        source: fault_control
+        target: /var/lib/phase1-control
+        volume: {}
+  vio:
+    cpu_period: 10000
+    cpu_quota: 40000
+    command:
+      - infinity
+    container_name: gnss-p1-vio-20261119-manual07
+    depends_on:
+      physics:
+        condition: service_started
+        required: true
+    entrypoint:
+      - sleep
+    environment:
+      FASTRTPS_DEFAULT_PROFILES_FILE: /opt/integration/live_vio_observer_udp.xml
+      GZ_PARTITION: gnss-p1-integrated-20261119-manual07
+      GZ_SIM_RESOURCE_PATH: /run/integration/models:/opt/ardupilot_gazebo/models:/opt/ardupilot_gazebo/worlds
+      GZ_SIM_SYSTEM_PLUGIN_PATH: /opt/ardupilot_gazebo/build
+      LIBGL_ALWAYS_SOFTWARE: "1"
+      OMP_NUM_THREADS: "1"
+      OPENBLAS_NUM_THREADS: "1"
+      PYTHONPATH: /opt/integration
+      QT_QPA_PLATFORM: offscreen
+      ROS_DOMAIN_ID: "108"
+    image: sha256:1653eb3241db282628fab9a528328aede57d556c0f16bdaa3e0d7ef3c49faed9
+    mem_limit: "1073741824"
+    network_mode: service:physics
+    volumes:
+      - type: bind
+        source: /home/solomiia/visual/phase1-linux-validated.vjmidm/source/integration
+        target: /opt/integration
+        read_only: true
+        bind:
+          create_host_path: true
+      - type: bind
+        source: /home/solomiia/visual/phase1-linux-validated.vjmidm/source/integration/phase1_runs/20261119-manual07
+        target: /run/integration
+        bind:
+          create_host_path: true
+      - type: bind
+        source: /home/solomiia/visual/phase1-linux-validated.vjmidm/source/vio
+        target: /opt/vio
+        read_only: true
+        bind:
+          create_host_path: true
+      - type: volume
+        source: fault_control
+        target: /var/lib/phase1-control
+        volume: {}
+networks:
+  isolated:
+    name: gnss-p1-integrated-20261119-manual07
+    internal: true
+volumes:
+  fault_control:
+    name: gnss-p1-control-20261119-manual07
+  guard_state:
+    name: gnss-p1-guard-20261119-manual07

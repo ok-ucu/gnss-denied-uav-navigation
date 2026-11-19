@@ -1,0 +1,9 @@
+{
+  "branch": "fix/phase1-linux-validated",
+  "source_commit": "882c34b38c323b9c7b57ef77db02fcc00befbe7e",
+  "launcher_sha256": "f75064d568fae2e67c91ff09e3c1c726c8e7253ed86458168edebdc0da735bc8",
+  "physics_image": "sha256:1653eb3241db282628fab9a528328aede57d556c0f16bdaa3e0d7ef3c49faed9",
+  "world_sha256": "bf3dce911f0d02f5bd4a6f04710b62473c6784892917f1b6fb20257b14274df5",
+  "scope": "DISARMED vision only",
+  "candidate_sha256": "b61130f975c0e6cdf67f2fd56d3e7d6fd025a7094bb379b247e907745900fc3f"
+}

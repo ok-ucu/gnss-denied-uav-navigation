@@ -1,0 +1,51 @@
+{
+  "schema": 1,
+  "scope": "gazebo-sitl-disarmed-vision",
+  "approved": true,
+  "run_id": "20261119-manual07",
+  "reference_nonce": "b40a5b10-25f9-408b-a70e-c8358df4d571",
+  "clock_epoch": "242f5559-eaed-4931-a57f-56ef54322b73",
+  "candidate": "linux_gpu_runs/verified-linux-candidate/candidate.json",
+  "candidate_sha256": "b61130f975c0e6cdf67f2fd56d3e7d6fd025a7094bb379b247e907745900fc3f",
+  "firmware_sha256": "d8c8aa1126156c7c124fddb0dc0908704e0b9779a5b9fc5e40d24fa39b5f0d36",
+  "ap_commit": "9279df6191a772c098b2e4797c95ac954f258d88",
+  "origin": [
+    -353632620,
+    1491652370,
+    584000
+  ],
+  "containers": {
+    "physics": "9ce76ba35433941d80f0ce9f2ea4cf59d56f8c938fc019133b04024ba132c325",
+    "fcu": "4686cce6a64a4b9c8057162896d589b7fab59f1dd79e6186e517f98c869c39b5",
+    "vio": "b8fc5971a7a65c14d4389515402c693b3b2fa74bdb00e31db816f468bc26944f",
+    "transport": "3685f6b34b5d6ede49de8633696ddb279452a60b1c2316f606d796844a868376"
+  },
+  "transport_identity": {
+    "netns": "net:[4026533166]",
+    "boot_id": "8e28eed1-4b1b-4d46-8e0b-99d127ceff49",
+    "init_starttime": "522043",
+    "hostname": "9ce76ba35433",
+    "exe_sha256": "8ac215ec4c1ce4a9c23a10cd3e5898d60419bdfab1ac7444d6bdd1690701de24",
+    "cmdline": [
+      "sleep",
+      "infinity"
+    ]
+  },
+  "source_hashes": {
+    "phase1_transport.py": "355eccf9580293466b27f6628e6db0898fb20b4a474171af6db264ba6f46d6ad",
+    "simulation_vision.py": "08b2f76d8d8f05f1e7e9e99feba933583b5bc32c7ab5fbac340f1a7af94b8261",
+    "physics_clock_mapping.py": "fcb9633a98914924990c734a920c60fdd0f3036ff36a69f8455c926250a25638",
+    "navigation_lifecycle.py": "ce429cce55329e298944f36722e43a60e0d2785811f55bf30512670ca6a9d0af",
+    "navigation_egress.py": "0c9890292f668f9e7d387d344318c8e969f3fbfa35bb544208c9c8d2eaaee2ef",
+    "phase1_capture_mavros.yaml": "30b11426d099c7772c26595dc9e4e76e5c1461c0c7ace4c0dbbeaadb912a0f04",
+    "launch_phase1.py": "f75064d568fae2e67c91ff09e3c1c726c8e7253ed86458168edebdc0da735bc8",
+    "run_phase1_validation.py": "ab2210083dcf157f131f1040717e7ad7f2cd6e3da229002c0a2ee72ff734d93e",
+    "preflight_ekf3.py": "48755623d436ce0cad275e37499f0381ca1d7b997df56a0e4390e95e572488c1",
+    "phase1.compose.yaml": "6b02363b9f5536a172dfdf5215009932fdc5fbd70f634643de2029ecfcdfc4c3",
+    "linux_gpu/phase1.gpu.nvidia.yaml": "705782e6a41d105822d351539fcda35bd3e9b4f3028381864bedf818dedae934"
+  },
+  "execution_allowed": false,
+  "forwarding_enabled": false,
+  "native_verified": false,
+  "scope_notice": "Only simulation vision; no ARM/mode/takeoff; not proof of FCU fusion"
+}

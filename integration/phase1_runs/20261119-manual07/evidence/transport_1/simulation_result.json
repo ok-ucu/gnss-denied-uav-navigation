@@ -1,0 +1,10 @@
+{
+  "scope": "DISARMED Gazebo/SITL ONLY",
+  "vision_socket_writes": 506,
+  "failure": "VIO availability watchdog",
+  "origin_confirmed": true,
+  "complete_forwarded_pairs": 253,
+  "fcu_reception_and_fusion": "NOT VERIFIED: inspect DataFlash VISP/VISV/XKF logs",
+  "execution_allowed": false,
+  "forwarding_enabled": false
+}
