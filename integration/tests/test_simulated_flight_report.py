@@ -328,6 +328,8 @@ class FlightReportTests(unittest.TestCase):
 
     @unittest.skipUnless(importlib.util.find_spec('matplotlib'),'Matplotlib unavailable; actual plot rendering NOT TESTED')
     def test_plot_construction_without_saving_synthetic_demo_images(self):
+        import matplotlib.pyplot  # Initialize pyplot before mocking Figure.savefig.
+
         report,data=self.result()
         # Exercise plotting arrays/phase decorations only. No fictional PNGs.
         with patch('matplotlib.figure.Figure.savefig') as save:
