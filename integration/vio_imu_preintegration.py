@@ -55,13 +55,26 @@ def preintegration_bound(frame_stamp, period, newest_arrived=None):
     return frame_stamp+period-STAMP_EPSILON_S
 
 
+def finite_imu_sample(sample):
+    return math.isfinite(sample['t']) and all(map(math.isfinite, sample['f']+sample['gyro']+sample['q']))
+
+
+def _identical_imu_sample(previous, sample):
+    """Match sensor payload, excluding arrival and callback diagnostics."""
+    return (previous['t'] == sample['t']
+            and previous.get('frame') == sample.get('frame')
+            and finite_imu_sample(sample)
+            and all(previous[key] == sample[key] for key in ('f', 'gyro', 'q')))
+
+
 def advance(state, samples, base, until, predict, rotation, limit=None, step_s=0.):
     """Integrate consecutive IMU samples with t <= until, starting at state['imu_index'].
 
     samples[i] has absolute buffer index base+i. Updates last_imu, filter_t,
     imu_index and the pending accumulators. Stops BEFORE a gap/reset/non-finite
     sample and returns it without consuming it, so the frame path fails closed
-    exactly as before. Returns (count, bad); count is raw samples consumed.
+    exactly as before. Identical retransmissions advance only the buffer cursor.
+    Returns (count, bad); count is raw samples consumed, including duplicates.
 
     step_s == 0: one EKF prediction per IMU sample, exactly as the frame path
     always did. step_s > 0: consecutive samples spanning up to step_s are
@@ -78,20 +91,26 @@ def advance(state, samples, base, until, predict, rotation, limit=None, step_s=0
         if i < 0:
             raise ValueError('IMU index before buffer window')
         block, bad, previous = [], None, state['last_imu']
-        while i+len(block) < len(samples) and (limit is None or count+len(block) < limit):
-            m = samples[i+len(block)]
+        consumed = 0
+        while i+consumed < len(samples) and (limit is None or count+consumed < limit):
+            m = samples[i+consumed]
             if m['t'] > until:
                 break
             gap = m['t']-previous['t']
-            if not 0 < gap <= .02 or not all(map(math.isfinite, m['f']+m['gyro'])):
+            if gap == 0 and _identical_imu_sample(previous, m):
+                consumed += 1
+                continue
+            if not 0 < gap <= .02 or not finite_imu_sample(m):
                 bad = m
                 break
             block.append((m, gap))
+            consumed += 1
             previous = m
             if m['t']-state['filter_t'] >= step_s-1e-12:
                 break
         if not block:
-            return count, bad
+            state['imu_index'] += consumed
+            return count+consumed, bad
         last, start = state['last_imu'], state['filter_t']
         if len(block) == 1:
             m, gap = block[0]
@@ -118,9 +137,9 @@ def advance(state, samples, base, until, predict, rotation, limit=None, step_s=0
                 predict(np.array(f)/dt, r, dt)
                 state['pending_gyro'].append((dt, np.array(g)/dt))
         state['pending_max_gap'] = max([state['pending_max_gap']]+[gap for _, gap in block])
-        state.update(last_imu=block[-1][0], filter_t=block[-1][0]['t'], imu_index=state['imu_index']+len(block))
+        state.update(last_imu=block[-1][0], filter_t=block[-1][0]['t'], imu_index=state['imu_index']+consumed)
         state['pending_count'] += len(block)
-        count += len(block)
+        count += consumed
         if bad is not None:
             return count, bad
 
@@ -165,7 +184,7 @@ def idle_step(state, tail, predict, rotation, newest_arrived=None, step_s=0.):
     """Between frames: integrate up to TICK_CHUNK samples, never past the next frame.
 
     tail(index, limit) returns buffer items from index. Does nothing while the
-    estimator is uninitialized or awaiting a reset. Returns samples integrated.
+    estimator is uninitialized or awaiting a reset. Returns raw samples consumed.
     """
     bound = preintegration_bound(state['frame_stamp'], state['camera_period'], newest_arrived)
     if (bound is None or state['last_imu'] is None or state['reset_after'] is not None

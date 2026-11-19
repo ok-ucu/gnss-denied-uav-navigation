@@ -21,7 +21,7 @@ from skip_log import SkipLog
 from vio_admission import Admission, keep_as_reference
 import vio_flow_consistency
 from vio_imu_preintegration import (new_pending, frame_step, idle_step, observe_frame_stamp, advance,
-                                    ImuGapError, PreintegrationOverrun, PROPAGATION_STEP_S)
+                                    finite_imu_sample, ImuGapError, PreintegrationOverrun, PROPAGATION_STEP_S)
 
 
 # Source publication age gate (simulation seconds), derived from the transport's
@@ -93,7 +93,8 @@ def main():
     from vio_geometry import camera_to_body_xy
     from vio_estimation_inputs import fixed_mount, vertical_inputs
     from vio_quality_gate import QualityGate, covariance_ok, fresh, ekf_ready
-    from vio_quality_gate import measure_distributed_flow, judge_distributed_flow
+    from vio_quality_gate import (MIN_VISUAL_CONTRAST, MIN_VISUAL_INLIERS,
+                                  measure_distributed_flow, judge_distributed_flow)
     from vio_scale_compensation import predicted_scale, compensate_previous
     cv2.setNumThreads(1)
     rclpy.init()
@@ -155,7 +156,8 @@ def main():
     config.update(profile_pid=os.getpid(),frame_thread_native_id=threading.get_native_id())
     config['source_sha256'] = {str(path.name): hashlib.sha256(path.read_bytes()).hexdigest()
                                for path in [Path(__file__), Path(__file__).with_name('vio_quality_gate.py'),
-                                            Path(__file__).with_name('vio_sensor_capture.py')]
+                                            Path(__file__).with_name('vio_sensor_capture.py'),
+                                            Path(__file__).with_name('vio_imu_preintegration.py')]
                                + [a.vio_dir/name for name in ('vio_core.py', 'vio_frontend.py', 'vio_ros_source.py', 'vio_ros_out.py')]}
     if a.isolated_imu:
         config['source_sha256']['isolated_imu.py']=hashlib.sha256(Path(__file__).with_name('isolated_imu.py').read_bytes()).hexdigest()
@@ -401,7 +403,15 @@ def main():
                 state['imu_index'] = next((i for i in range(len(imu)-1, -1, -1) if imu[i]['t'] <= t), -1)
                 if state['imu_index'] < 0:
                     raise ValueError('waiting for first causal IMU')
-                state['last_imu'] = imu[state['imu_index']]
+                # Retain the first sample on the seed timestamp so advance()
+                # can check all repeats rather than silently choosing the last.
+                while (state['imu_index'] > 0
+                       and imu[state['imu_index']-1]['t'] == imu[state['imu_index']]['t']):
+                    state['imu_index'] -= 1
+                seed_imu = imu[state['imu_index']]
+                if not finite_imu_sample(seed_imu):
+                    raise ValueError('Nonfinite initial IMU sample')
+                state['last_imu'] = seed_imu
                 state['filter_t'] = state['last_imu']['t']
                 state['imu_index'] += 1
                 state.update(new_pending())
@@ -510,7 +520,9 @@ def main():
                     consistency = vio_flow_consistency.check(result.v_xy, result.sigma_v, prior_xy+lever_xy, prior_cov,
                                                              gyro, r, depth, pair_dt, 205.4696, periods)
                     row['flow_consistency'] = consistency
-                if audit['ok'] and consistency is not None and consistency['ok']:
+                if (audit['ok'] and consistency is not None and consistency['ok']
+                        and math.isfinite(contrast) and contrast >= MIN_VISUAL_CONTRAST
+                        and math.isfinite(result.n_inliers) and result.n_inliers >= MIN_VISUAL_INLIERS):
                     accepted, nis = ekf.update_velocity_xy(velocity, result.sigma_scale)
                     row.update(nis=float(nis))
                 state['accepted' if accepted else 'rejected'] += 1

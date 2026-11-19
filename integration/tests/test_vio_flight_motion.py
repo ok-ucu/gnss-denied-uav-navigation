@@ -115,6 +115,107 @@ class BlockPropagation(unittest.TestCase):
         self.assertEqual(state['filter_t'], .2)
 
 
+    def test_duplicates_preserve_state_covariance_and_prediction_count(self):
+        imu = aggressive_imu(seconds=.03)
+        for step in (0., .005):
+            for repeats in (1, 4):
+                with self.subTest(step=step, repeats=repeats):
+                    baseline_calls, actual_calls = [], []
+                    expected, prior, _, _, _ = propagate(imu, step, baseline_calls)
+                    # Sample 6 closes the first 5 ms block.
+                    repeated = imu[:6] + [dict(imu[5], arrival_monotonic_s=1+i)
+                                          for i in range(repeats)] + imu[6:]
+                    actual, state, consumed, bad, _ = propagate(repeated, step, actual_calls)
+                    self.assertIsNone(bad)
+                    self.assertEqual(consumed, len(repeated)-1)
+                    self.assertEqual(state['imu_index'], len(repeated))
+                    self.assertEqual(state['pending_count'], prior['pending_count'])
+                    self.assertEqual(state['filter_t'], prior['filter_t'])
+                    self.assertEqual(len(actual_calls), len(baseline_calls))
+                    np.testing.assert_array_equal(actual.x, expected.x)
+                    np.testing.assert_array_equal(actual.P, expected.P)
+
+    def test_duplicates_at_idle_and_frame_boundaries_do_not_request_epoch_reset(self):
+        from vio_core import VioEKF
+        from vio_imu_preintegration import frame_step, idle_step, new_pending
+        from test_vio_backlog import rotation
+
+        for step in (0., .005):
+            with self.subTest(step=step):
+                outcomes = []
+                for duplicate_count in (0, 10):
+                    imu = aggressive_imu(seconds=.02)
+                    imu = imu[:1] + [dict(imu[0])]*duplicate_count + imu[1:]
+                    if duplicate_count:
+                        imu.append(dict(imu[-1]))
+                    ekf = VioEKF()
+                    state = dict(last_imu=imu[0], filter_t=imu[0]['t'], imu_index=1,
+                                 frame_stamp=.001, camera_period=.019, reset_after=None,
+                                 **new_pending())
+                    while idle_step(state, lambda i,n: imu[i:i+n], ekf.predict, rotation, step_s=step):
+                        pass
+                    frame_step(state, imu, .02, ekf.predict, rotation, step_s=step)
+                    self.assertEqual(state['imu_index'], len(imu))
+                    self.assertEqual(state['filter_t'], .02)
+                    self.assertIsNone(state['reset_after'])
+                    outcomes.append(ekf)
+                np.testing.assert_array_equal(outcomes[0].x, outcomes[1].x)
+                np.testing.assert_array_equal(outcomes[0].P, outcomes[1].P)
+
+    def test_conflict_backward_gap_and_nonfinite_remain_frame_errors(self):
+        from vio_core import VioEKF
+        from vio_imu_preintegration import frame_step, ImuGapError, new_pending
+        from test_vio_backlog import rotation
+
+        first = aggressive_imu(seconds=.002)[0]
+        faults = [dict(first, f=[0., 0., 0.]), dict(first, t=0.),
+                  dict(first, t=.030), dict(first, t=.002, gyro=[0., float('nan'), 0.]),
+                  dict(first, t=.002, q=[float('inf'), 0., 0., 0.])]
+        for step in (0., .005):
+            for faulty in faults:
+                with self.subTest(step=step, faulty=faulty):
+                    ekf = VioEKF()
+                    state = dict(last_imu=first, filter_t=first['t'], imu_index=1, **new_pending())
+                    with self.assertRaises(ImuGapError):
+                        frame_step(state, [first, faulty], .035, ekf.predict, rotation, step_s=step)
+                    self.assertEqual(state['imu_index'], 1)
+                    self.assertEqual(state['filter_t'], first['t'])
+
+
+    def test_pinned_prediction_matches_independent_covariance_reference(self):
+        from vio_core import G, VioEKF
+
+        for acceleration in (0., 1.2):
+            for velocity in (0., .4):
+                with self.subTest(acceleration=acceleration, velocity=velocity):
+                    ekf = VioEKF()
+                    ekf.x[3], ekf.x[6] = velocity, .15
+                    initial = ekf.P.copy()
+                    h, steps = .005, 120
+                    elapsed = h*steps
+                    ekf_acc = np.array([acceleration+.15, 0., -G])
+                    for _ in range(steps):
+                        ekf.predict(ekf_acc, np.eye(3), h)
+                    def transition(t):
+                        eye = np.eye(3)
+                        zero = np.zeros((3, 3))
+                        return np.block([[eye, t*eye, -.5*t*t*eye],
+                                         [zero, eye, -t*eye], [zero, zero, eye]])
+                    noise = np.diag([1e-6*h]*3 + [ekf.sigma_acc**2*h]*3
+                                    + [ekf.sigma_bias**2*h]*3)
+                    f = transition(elapsed)
+                    expected = f@initial@f.T
+                    for index in range(steps):
+                        age = transition(index*h)
+                        expected += age@noise@age.T
+                    np.testing.assert_allclose(ekf.P, expected, atol=1e-12, rtol=0)
+                    np.testing.assert_allclose(ekf.x[:6],
+                        [velocity*elapsed+.5*acceleration*elapsed**2, 0., 0.,
+                         velocity+acceleration*elapsed, 0., 0.], atol=1e-12)
+                    self.assertGreaterEqual(np.linalg.eigvalsh(ekf.P).min(), 0.)
+                    self.assertGreaterEqual(ekf.P[3, 3], ekf.sigma_acc**2*elapsed)
+
+
 class SkippedFrameStaysReference(unittest.TestCase):
     class Frontend:
         prev, prev_t = None, None

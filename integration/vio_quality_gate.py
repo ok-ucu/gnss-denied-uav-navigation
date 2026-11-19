@@ -6,6 +6,9 @@ audit checks spatially distributed track agreement, not semantic shadow identity
 import math
 from stage_timing import critical_stage
 
+MIN_VISUAL_INLIERS = 15
+MIN_VISUAL_CONTRAST = 8
+
 
 def fresh(age, limit):
     # ROS stamps have nanosecond resolution. Float subtraction of large sim
@@ -71,7 +74,7 @@ class QualityGate:
                   (fresh(clock_age, .2), 'clock synchronization'),
                   (0 < max_imu_gap <= .02, 'IMU gap'),
                   (frame_gap > 0 and fresh(frame_gap, .3), 'camera gap'),
-                  (inliers >= 15, 'inliers'), (contrast >= 8, 'contrast'),
+                  (inliers >= MIN_VISUAL_INLIERS, 'inliers'), (contrast >= MIN_VISUAL_CONTRAST, 'contrast'),
                   (state_finite, 'nonfinite state'),
                   # Audit before EKF: the caller fuses flow only after the audit
                   # passes, so ekf_ok is False whenever the audit fails. Checking

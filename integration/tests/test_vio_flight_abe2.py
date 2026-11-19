@@ -65,6 +65,28 @@ class RecordedLiftoffFailure(unittest.TestCase):
         self.assertEqual(round(last['t'], 1), 47.3)
         self.assertLess(last['publish_monotonic_s'], self.done_s)              # just before transport exit
 
+    def test_recorded_rejection_burst_still_exceeds_watchdog_in_gate_replay(self):
+        from vio_quality_gate import QualityGate
+
+        gate = QualityGate()
+        output = []
+        for tick in range(412, 427):
+            row = self.rows[tick / 10]
+            if gate.assess(row['t'], row['wall'], imu_age=row['imu_age'],
+                           frame_age=row['source_age'], clock_age=row['clock_age'],
+                           max_imu_gap=.001, inliers=row.get('inliers') or 0,
+                           contrast=row['contrast'], covariance=row['covariance'],
+                           state_finite=bool(np.isfinite(row['state']).all()),
+                           audit_ok=row['audit']['ok'], ekf_ok=row['flow_accepted']):
+                output.append(row)
+        before, after = output[-2:]
+        self.assertEqual((before['t'], after['t']), (41.7, 42.6))
+        self.assertAlmostEqual(after['t'] - before['t'], .9)
+        self.assertAlmostEqual(after['wall'] - before['wall'], .900049983, places=6)
+        self.assertGreater(after['wall'] - before['wall'], .5)
+        # Fixed-RTF sensitivity uses a separate host timeline, never a measured interval.
+        self.assertAlmostEqual((after['t'] - before['t']) / .656, 1.3719512195)
+
     def test_dds_discovery_skips_are_after_transport_exit(self):
         dds = [r for r in jsonl(RUN/'flight-source/skips.jsonl') if r['reason'] == 'waiting for downstream DDS discovery']
         startup = [r for r in dds if r['t'] < 25]
@@ -142,6 +164,19 @@ class SelfShadowBench(unittest.TestCase):
         measured = measure_distributed_flow(a, b, .1, scale)
         audit = judge_distributed_flow(measured, h1, FX, np.zeros(3), np.eye(3), result.v_xy)
         return result, audit
+
+    @unittest.skipUnless((RUN/'flight-source/stream.jsonl').is_file(), 'abe2 source evidence required')
+    def test_no_shadow_clears_visual_checks_across_recorded_rejection_band(self):
+        # Use the recorded body-height trajectory only as a bench input.
+        records = {round(r['t'], 1): r for r in jsonl(RUN/'flight-source/stream.jsonl')
+                   if 41.69 <= r.get('t', 0) <= 42.31}
+        for tick in range(418, 424):
+            previous, current = records[(tick-1)/10], records[tick/10]
+            with self.subTest(t=current['t']):
+                result, audit = self.liftoff_step(-previous['gt_ned'][2],
+                                                  -current['gt_ned'][2], shadow=False)
+                self.assertGreaterEqual(result.n_inliers, 150)
+                self.assertTrue(audit['ok'], audit)
 
     def test_shadow_reproduces_liftoff_collapse(self):
         # recorded 41.7 -> 41.8 (0.19 -> 0.20 m): 35 inliers, ambiguous spatial support
